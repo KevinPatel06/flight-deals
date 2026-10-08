@@ -54,6 +54,15 @@ so freshness must be visible and filterable.
 
 Cached prices are lowest fares and may exclude checked bags.
 
+**Baggage signal (undocumented):** each `prices_for_dates` booking link carries
+a `static_fare_key` such as `TY|P0|H1|L1_1_23|CH0|R0|TBC1`. Observed pattern:
+`H0`/`H1` = carry-on not included / included; `L0` = no checked bag,
+`L1_<pieces>_<kg>` = checked bag included (e.g. `L1_1_23` = 1 × 23 kg).
+Airline distribution matches known policies (Qatar fares ~all `L1`; Air Transat
+and Air Canada cheapest fares mostly `L0`). Treated as "likely" information,
+not a guarantee. `get_latest_prices` rows carry no link, so their bag status is
+unknown.
+
 ## 4. Architecture
 
 ```
@@ -128,6 +137,9 @@ Token sent in the `X-Access-Token` header, read from env `TRAVELPAYOUTS_TOKEN`.
 | `stops` | `max(transfers, return_transfers)` | `number_of_changes` |
 | `searched_on` | `search_date` param parsed from `link` (DDMMYYYY) | date of `found_at` |
 | `link` | `https://www.aviasales.com` + `link` | empty (Google link used) |
+| `carry_on` | `H1` → true, `H0` → false, missing → null | null |
+| `checked_bag` | `L1_…` → true, `L0` → false, missing → null | null |
+| `bag_pieces`, `bag_kg` | parsed from `L1_<pieces>_<kg>` (kg 0 → null) | null |
 | `kind` | `dates` | `latest` (or `seed` when run with `--seed`) |
 
 Plus `scan_date` (the run date, UTC) on every record.
@@ -136,8 +148,10 @@ Plus `scan_date` (the run date, UTC) on every record.
 `depart` in the future, `searched_on` within the last 7 days (seed rows exempt
 from the 7-day rule). Rejections are counted and logged by reason.
 
-**De-duplication** within a scan: key `(dest_airport, depart, return)`, keep the
-lowest price, preferring `dates` rows (they carry airline and link).
+**De-duplication** within a scan: key `(dest_airport, depart, return,
+checked_bag)`, keep the lowest price, preferring `dates` rows (they carry
+airline, link and bag info). Keeping `checked_bag` in the key preserves a
+bag-included fare even when a cheaper no-bag fare exists for the same dates.
 
 **Reliability:** HTTP 429/5xx retried 3 times with backoff (2s, 4s, 8s). A
 failed month is logged and skipped; the scan continues.
@@ -174,6 +188,7 @@ with many date combinations don't dominate.
 
 **Badges**
 - `nonstop`: `stops == 0`
+- `bag`: `checked_bag == true` (shows pieces × kg when known)
 - `fresh`: `searched_on` within 2 days; otherwise `aging` with age in days
 - `error_fare`: percent off ≥ 70 ("possible error fare, verify")
 - `unconfirmed`: percent off ≥ 40 and age ≥ 2 days ("verify before booking")
@@ -200,7 +215,12 @@ with many date combinations don't dominate.
 
 Fare object: `airport, depart, return, days, price, normal, pct_off (null if
 new route), baseline ("month"|"destination"|null), airline, stops,
-searched_on, age_days, badges[], links { aviasales?, google }`.
+carry_on, checked_bag, bag_pieces, bag_kg, searched_on, age_days, badges[],
+links { aviasales?, google }`.
+
+Baselines are computed from all fares (lowest fare, bag or not), so a
+bag-included fare's percent off is measured against the usual lowest fare and
+tends to look smaller. That is intended: it reflects the real price difference.
 
 `best` is the option with the highest percent off (ties → lowest price;
 new routes → lowest price). Google link format:
@@ -227,6 +247,8 @@ so verify before booking."
 - Departure months (multi-select)
 - Trip length min/max days
 - Nonstop only
+- Checked bag included (hides fares where it is false or unknown; when on,
+  each card's best fare is re-picked from bag-included options)
 - Max price age: 2 / 3 / 7 days (default 7)
 - Include new routes (default off)
 
@@ -240,6 +262,9 @@ links). Badges from §7 shown as small labels.
 Filter state is mirrored in the URL query string so views can be bookmarked.
 
 ## 10. Operations and error handling
+
+**Hosting:** public repo `KevinPatel06/flight-deals` + GitHub Pages (free).
+Nothing secret is committed; the token lives only in Actions secrets.
 
 **Workflow** `.github/workflows/scan.yml`:
 - Triggers: daily cron (10:00 UTC) + manual `workflow_dispatch`.
@@ -267,8 +292,9 @@ should be regenerated in Travelpayouts once setup is complete.
 - `scoring`: daily-min collapsing, 90-day window, exclusion of today, ≥7-day
   rule, month vs destination fallback, percent-off clamp at 0, every badge rule.
 - `sources/travelpayouts`: recorded real responses as fixtures → paging,
-  normalization (both endpoints), `search_date` parsing, filters, de-dup,
-  retry on 429/5xx (stubbed HTTP).
+  normalization (both endpoints), `search_date` parsing, `static_fare_key`
+  baggage parsing (`L0`, `L1_1_23`, `L1_2_0`, missing key), filters, de-dup
+  (including bag/no-bag twins), retry on 429/5xx (stubbed HTTP).
 - `store`: append + read across month boundaries, gzip round-trip.
 - `publish`: schema validation rejects malformed output; `best` selection.
 - Small-scan guard.
@@ -277,7 +303,8 @@ should be regenerated in Travelpayouts once setup is complete.
 sort orders, URL state round-trip.
 
 **Manual acceptance:** after the first week of scans, spot-check 5 top deals
-against Google Flights.
+against Google Flights, and 3 bag-included fares against the airline's fare
+details to confirm the `static_fare_key` reading.
 
 ## 12. Future upgrades (not in v1)
 
@@ -297,3 +324,4 @@ against Google Flights.
 | Seasonality hidden by destination-level baseline | Month baseline preferred once it has ≥ 7 days |
 | Travelpayouts API changes | Isolated adapter + fixture tests make breakage obvious and local |
 | Public Pages URL | Only public fare data is published; no secrets |
+| Baggage field is undocumented and may change or be misread | Parsed defensively (unknown → null); label says "bag likely included"; fixture tests; manual acceptance check |
