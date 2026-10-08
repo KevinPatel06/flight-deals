@@ -31,6 +31,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Queued runs must start from the current tip (including the previous run's bot commit),
+          # not the SHA they were triggered at, or their push is rejected as non-fast-forward.
+          ref: main
 
       - uses: actions/setup-python@v5
         with:

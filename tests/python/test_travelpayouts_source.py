@@ -1,3 +1,4 @@
+import http.client
 import urllib.error
 from datetime import date
 
@@ -186,3 +187,31 @@ def test_http_get_json_gives_up_after_three_retries():
 def test_http_get_json_rejects_non_json():
     with pytest.raises(ApiError, match="invalid JSON"):
         http_get_json("https://api.example/x", {}, {}, opener=opener_from([b"<html>"]), sleep=lambda s: None)
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        TimeoutError("timed out"),
+        ConnectionResetError("reset by peer"),
+        http.client.RemoteDisconnected("closed"),
+        http.client.IncompleteRead(b""),
+    ],
+)
+def test_http_get_json_retries_low_level_network_errors(error):
+    sleeps = []
+    opener = opener_from([error, b'{"success": true, "data": []}'])
+    assert http_get_json("https://api.example/x", {}, {}, opener=opener, sleep=sleeps.append) == {"success": True, "data": []}
+    assert sleeps == [2]
+
+
+def test_http_get_json_turns_repeated_timeouts_into_api_error():
+    with pytest.raises(ApiError, match="network error"):
+        http_get_json("https://api.example/x", {}, {}, opener=opener_from([TimeoutError("t")] * 4), sleep=lambda s: None)
+
+
+def test_non_object_rows_are_counted_invalid():
+    api = FakeApi({("prices_for_dates", "2026-12", "1"): ok([dates_row(), "junk", None])})
+    result = TravelpayoutsSource("tok", get_json=api).fetch("YUL", TODAY)
+    assert result.rejected == {"invalid": 2}
+    assert len(result.fares) == 1

@@ -1,6 +1,7 @@
 """Travelpayouts / Aviasales Data API adapter: cached fares -> Fare records."""
 from __future__ import annotations
 
+import http.client
 import json
 import re
 import time
@@ -85,6 +86,8 @@ def _int(value) -> int | None:
 
 def normalize_dates_row(row: dict, origin: str, scan_date: date) -> Fare | None:
     """A /v3/prices_for_dates row as a Fare, or None if it is unusable."""
+    if not isinstance(row, dict):
+        return None
     depart = _day(row.get("departure_at"))
     ret = _day(row.get("return_at"))
     price = _int(row.get("price"))
@@ -120,6 +123,8 @@ def normalize_dates_row(row: dict, origin: str, scan_date: date) -> Fare | None:
 
 def normalize_latest_row(row: dict, origin: str, scan_date: date, kind: str) -> Fare | None:
     """A /v3/get_latest_prices row as a Fare (kind "latest" or "seed"), or None."""
+    if not isinstance(row, dict):
+        return None
     depart = _day(row.get("depart_date"))
     ret = _day(row.get("return_date"))
     price = _int(row.get("value"))
@@ -197,9 +202,10 @@ def http_get_json(url: str, params: dict, headers: dict, *, opener=urllib.reques
         except urllib.error.HTTPError as err:
             if err.code not in RETRY_STATUS or last:
                 raise ApiError(f"HTTP {err.code} for {url}") from err
-        except urllib.error.URLError as err:
+        except (urllib.error.URLError, http.client.HTTPException, OSError) as err:
+            # Timeouts and dropped connections while reading surface as bare OSError/HTTPException.
             if last:
-                raise ApiError(f"network error for {url}: {err.reason}") from err
+                raise ApiError(f"network error for {url}: {getattr(err, 'reason', err)!r}") from err
         except ValueError as err:
             raise ApiError(f"invalid JSON from {url}") from err
         sleep(BACKOFF[attempt])

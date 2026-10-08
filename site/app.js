@@ -1,4 +1,4 @@
-import { DEFAULTS, ageDays, applyFilters, countDeals, fromQuery, hoursSince, toQuery } from "./filters.js";
+import { DEFAULTS, ageDays, applyFilters, countDeals, fromQuery, hoursSince, localISODate, toQuery } from "./filters.js";
 
 const AIRLINES = {
   AA: "American", AC: "Air Canada", AF: "Air France", AM: "Aeroméxico", AT: "Royal Air Maroc",
@@ -12,7 +12,7 @@ const FRESH_DAYS = 2;
 const ERROR_PCT = 70;
 const UNCONFIRMED_PCT = 40;
 
-const today = new Date().toLocaleDateString("en-CA"); // YYYY-MM-DD in local time
+const today = localISODate(new Date());
 const form = document.getElementById("filters");
 const results = document.getElementById("results");
 const status = document.getElementById("status");

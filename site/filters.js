@@ -60,6 +60,12 @@ export function countDeals(destinations, minPct, today) {
   return destinations.filter((d) => d.options.some((o) => o.depart > today && o.pct_off !== null && o.pct_off >= minPct)).length;
 }
 
+// YYYY-MM-DD for the viewer's local calendar day, built by hand: toLocaleDateString output varies by browser.
+export function localISODate(d) {
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
 export function hoursSince(iso, nowMs) {
   return Math.floor((nowMs - Date.parse(iso)) / 3_600_000);
 }

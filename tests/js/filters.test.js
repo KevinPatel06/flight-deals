@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  DEFAULTS, ageDays, optionMatches, applyFilters, sortResults, toQuery, fromQuery, countDeals, hoursSince,
+  DEFAULTS, ageDays, optionMatches, applyFilters, sortResults, toQuery, fromQuery, countDeals, hoursSince, localISODate,
 } from "../../site/filters.js";
 
 const TODAY = "2026-10-08";
@@ -111,4 +111,9 @@ test("countDeals and hoursSince", () => {
   ];
   assert.equal(countDeals(data, 30, TODAY), 1);
   assert.equal(hoursSince("2026-10-08T10:00:00Z", Date.parse("2026-10-08T13:30:00Z")), 3);
+});
+
+test("localISODate formats the local calendar date without locale data", () => {
+  assert.equal(localISODate(new Date(2026, 0, 5, 23, 30)), "2026-01-05");
+  assert.equal(localISODate(new Date(2026, 11, 31, 0, 1)), "2026-12-31");
 });

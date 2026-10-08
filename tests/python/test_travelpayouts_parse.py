@@ -163,3 +163,8 @@ def test_dedupe_keeps_seed_rows_from_different_search_days():
     a = make_fare(kind="seed", searched_on=date(2026, 9, 1))
     b = make_fare(kind="seed", searched_on=date(2026, 9, 2))
     assert len(dedupe([a, b])) == 2
+
+
+def test_non_object_rows_are_rejected():
+    assert normalize_dates_row("oops", "YUL", TODAY) is None
+    assert normalize_latest_row(None, "YUL", TODAY, "latest") is None
