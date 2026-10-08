@@ -67,7 +67,7 @@ unknown.
 
 ```
 GitHub Actions (daily cron)
-  └─ scanner (Python 3.12, stdlib only at runtime)
+  └─ scanner (Python 3.12 in CI, 3.10+ compatible, stdlib only at runtime)
        1. fetch     Source adapter → list[Fare]
        2. store     append to data/observations/YYYY-MM.csv.gz
        3. baseline  normal price per destination (and per dest+month when enough data)
@@ -148,10 +148,11 @@ Plus `scan_date` (the run date, UTC) on every record.
 `depart` in the future, `searched_on` within the last 7 days (seed rows exempt
 from the 7-day rule). Rejections are counted and logged by reason.
 
-**De-duplication** within a scan: key `(dest_airport, depart, return,
-checked_bag)`, keep the lowest price, preferring `dates` rows (they carry
-airline, link and bag info). Keeping `checked_bag` in the key preserves a
-bag-included fare even when a cheaper no-bag fare exists for the same dates.
+**De-duplication** within a scan: group by `(dest_city, depart, return,
+obs_day)` and keep the lowest price, preferring `dates` rows on ties (they
+carry airline, link and bag info). If the kept fare does not include a checked
+bag, the cheapest bag-included fare in the group is kept as well, so a
+bag-included option survives even when a cheaper no-bag fare exists.
 
 **Reliability:** HTTP 429/5xx retried 3 times with backoff (2s, 4s, 8s). A
 failed month is logged and skipped; the scan continues.
@@ -189,7 +190,7 @@ with many date combinations don't dominate.
 **Badges**
 - `nonstop`: `stops == 0`
 - `bag`: `checked_bag == true` (shows pieces × kg when known)
-- `fresh`: `searched_on` within 2 days; otherwise `aging` with age in days
+- `fresh`: age (today − `searched_on`) under 2 days; otherwise `aging` with age in days
 - `error_fare`: percent off ≥ 70 ("possible error fare, verify")
 - `unconfirmed`: percent off ≥ 40 and age ≥ 2 days ("verify before booking")
 - `rough`: destination-level baseline used
@@ -267,7 +268,9 @@ Filter state is mirrored in the URL query string so views can be bookmarked.
 Nothing secret is committed; the token lives only in Actions secrets.
 
 **Workflow** `.github/workflows/scan.yml`:
-- Triggers: daily cron (10:00 UTC) + manual `workflow_dispatch`.
+- Triggers: daily cron (10:00 UTC), manual `workflow_dispatch` (optional
+  seed), and pushes to `main` that change `scanner/`, `site/`, `tests/` or the
+  workflow (so code changes deploy). Bot commits do not re-trigger runs.
 - Steps: checkout → setup Python 3.12 → `pytest` → `node --test` →
   `python -m scanner` → commit `data/` and `site/deals.json` if changed →
   deploy `site/` with `actions/upload-pages-artifact` + `actions/deploy-pages`.
