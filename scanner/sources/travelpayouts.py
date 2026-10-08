@@ -1,8 +1,15 @@
 """Travelpayouts / Aviasales Data API adapter: cached fares -> Fare records."""
 from __future__ import annotations
 
+import json
 import re
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
+from dataclasses import dataclass, field
 from datetime import date
+from typing import Callable
 from urllib.parse import unquote
 
 from scanner.fare import Fare
@@ -12,6 +19,12 @@ MIN_TRIP_DAYS = 2
 MAX_TRIP_DAYS = 30
 MAX_STOPS = 1
 MAX_AGE_DAYS = 7
+
+API = "https://api.travelpayouts.com"
+PAGE_LIMIT = 1000
+MAX_PAGES = 10
+BACKOFF = (2, 4, 8)
+RETRY_STATUS = {429, 500, 502, 503, 504}
 
 _SEARCH_DATE = re.compile(r"search_date=(\d{2})(\d{2})(\d{4})")
 _FARE_KEY = re.compile(r"static_fare_key=([^&]+)")
@@ -167,3 +180,129 @@ def dedupe(fares: list[Fare]) -> list[Fare]:
             if bagged:
                 kept.append(min(bagged, key=rank))
     return kept
+
+
+class ApiError(Exception):
+    """A request failed for good (after retries, or with a non-retryable status)."""
+
+
+def http_get_json(url: str, params: dict, headers: dict, *, opener=urllib.request.urlopen, sleep=time.sleep) -> dict:
+    """GET url?params as JSON. Retries 429/5xx and network errors with 2s, 4s, 8s waits."""
+    request = urllib.request.Request(url + "?" + urllib.parse.urlencode(params), headers=headers)
+    for attempt in range(len(BACKOFF) + 1):
+        last = attempt == len(BACKOFF)
+        try:
+            with opener(request, timeout=30) as response:
+                return json.loads(response.read().decode("utf-8"))
+        except urllib.error.HTTPError as err:
+            if err.code not in RETRY_STATUS or last:
+                raise ApiError(f"HTTP {err.code} for {url}") from err
+        except urllib.error.URLError as err:
+            if last:
+                raise ApiError(f"network error for {url}: {err.reason}") from err
+        except ValueError as err:
+            raise ApiError(f"invalid JSON from {url}") from err
+        sleep(BACKOFF[attempt])
+    raise AssertionError("unreachable")
+
+
+def months_from(today: date, count: int) -> list[str]:
+    """count consecutive 'YYYY-MM' strings starting with today's month."""
+    year, month = today.year, today.month
+    months = []
+    for _ in range(count):
+        months.append(f"{year:04d}-{month:02d}")
+        month += 1
+        if month == 13:
+            year, month = year + 1, 1
+    return months
+
+
+@dataclass
+class FetchResult:
+    fares: list[Fare] = field(default_factory=list)
+    rejected: dict[str, int] = field(default_factory=dict)
+    failed: list[str] = field(default_factory=list)
+
+
+GetJson = Callable[[str, dict, dict], dict]
+
+
+class TravelpayoutsSource:
+    """Fetches cached round-trip fares from one origin."""
+
+    def __init__(self, token: str, get_json: GetJson | None = None, months_ahead: int = 12):
+        self._headers = {"X-Access-Token": token, "Accept": "application/json"}
+        self._get_json = get_json or http_get_json
+        self._months_ahead = months_ahead
+
+    def fetch(self, origin: str, today: date) -> FetchResult:
+        result = FetchResult()
+        candidates: list[Fare | None] = []
+        for month in months_from(today, self._months_ahead):
+            rows = self._pages(result, f"dates {month}", "/aviasales/v3/prices_for_dates", {
+                "origin": origin,
+                "departure_at": month,
+                "one_way": "false",
+                "currency": "cad",
+                "market": "ca",
+                "sorting": "price",
+                "unique": "false",
+            })
+            candidates += [normalize_dates_row(row, origin, today) for row in rows]
+        rows = self._latest(result, "latest", origin, today.year)
+        candidates += [normalize_latest_row(row, origin, today, "latest") for row in rows]
+        return _finish(candidates, today, result)
+
+    def seed(self, origin: str, today: date) -> FetchResult:
+        result = FetchResult()
+        candidates: list[Fare | None] = []
+        for year in (today.year - 1, today.year):
+            rows = self._latest(result, f"seed {year}", origin, year)
+            candidates += [normalize_latest_row(row, origin, today, "seed") for row in rows]
+        return _finish(candidates, today, result)
+
+    def _latest(self, result: FetchResult, label: str, origin: str, year: int) -> list[dict]:
+        return self._pages(result, label, "/aviasales/v3/get_latest_prices", {
+            "origin": origin,
+            "currency": "cad",
+            "period_type": "year",
+            "beginning_of_period": str(year),
+            "one_way": "false",
+            "show_to_affiliates": "false",
+            "market": "ca",
+            "sorting": "price",
+        })
+
+    def _pages(self, result: FetchResult, label: str, path: str, params: dict) -> list[dict]:
+        rows: list[dict] = []
+        for page in range(1, MAX_PAGES + 1):
+            query = {**params, "limit": str(PAGE_LIMIT), "page": str(page)}
+            try:
+                body = self._get_json(API + path, query, self._headers)
+            except ApiError as err:
+                print(f"warning: {label} page {page} failed: {err}")
+                result.failed.append(label)
+                return rows
+            data = body.get("data") if isinstance(body, dict) else None
+            if not (isinstance(body, dict) and body.get("success") and isinstance(data, list)):
+                error = body.get("error") if isinstance(body, dict) else body
+                print(f"warning: {label} page {page} returned an error: {error}")
+                result.failed.append(label)
+                return rows
+            rows.extend(data)
+            if len(data) < PAGE_LIMIT:
+                break
+        return rows
+
+
+def _finish(candidates: list[Fare | None], today: date, result: FetchResult) -> FetchResult:
+    kept = []
+    for fare in candidates:
+        reason = "invalid" if fare is None else rejection_reason(fare, today)
+        if reason:
+            result.rejected[reason] = result.rejected.get(reason, 0) + 1
+        else:
+            kept.append(fare)
+    result.fares = dedupe(kept)
+    return result
