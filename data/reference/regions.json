@@ -1,0 +1,12 @@
+{
+  "Canada": ["CA"],
+  "United States": ["US"],
+  "Mexico & Central America": ["MX", "GT", "BZ", "SV", "HN", "NI", "CR", "PA"],
+  "Caribbean": ["CU", "DO", "HT", "JM", "PR", "BS", "BB", "TT", "AG", "AW", "CW", "BQ", "SX", "MF", "BL", "GP", "MQ", "LC", "VC", "GD", "DM", "KN", "KY", "TC", "VG", "VI", "AI", "MS", "BM"],
+  "South America": ["CO", "VE", "EC", "PE", "BO", "BR", "PY", "UY", "AR", "CL", "GY", "SR", "GF"],
+  "Europe": ["IS", "IE", "GB", "PT", "ES", "FR", "BE", "NL", "LU", "DE", "CH", "AT", "IT", "MT", "SM", "VA", "MC", "AD", "LI", "DK", "NO", "SE", "FI", "EE", "LV", "LT", "PL", "CZ", "SK", "HU", "SI", "HR", "BA", "RS", "ME", "MK", "AL", "GR", "CY", "BG", "RO", "MD", "UA", "BY", "RU", "GE", "AM", "AZ", "TR", "XK", "FO", "GI"],
+  "Middle East": ["IL", "PS", "JO", "LB", "SY", "IQ", "IR", "SA", "AE", "QA", "BH", "KW", "OM", "YE"],
+  "Africa": ["MA", "DZ", "TN", "LY", "EG", "SD", "SS", "ET", "ER", "DJ", "SO", "KE", "UG", "TZ", "RW", "BI", "CD", "CG", "CM", "GA", "GQ", "CF", "TD", "NE", "NG", "BJ", "TG", "GH", "CI", "BF", "ML", "SN", "GM", "GN", "GW", "SL", "LR", "MR", "CV", "ST", "AO", "ZM", "ZW", "MW", "MZ", "BW", "NA", "ZA", "LS", "SZ", "MG", "MU", "SC", "KM", "RE", "YT"],
+  "Asia": ["CN", "HK", "MO", "TW", "JP", "KR", "KP", "MN", "KZ", "UZ", "KG", "TJ", "TM", "AF", "PK", "IN", "NP", "BT", "BD", "LK", "MV", "MM", "TH", "LA", "KH", "VN", "MY", "SG", "ID", "PH", "BN", "TL"],
+  "Oceania": ["AU", "NZ", "FJ", "PF", "NC", "PG", "WS", "TO", "VU", "SB", "GU", "MP", "CK", "KI", "FM", "MH", "PW", "NR", "TV"]
+}
