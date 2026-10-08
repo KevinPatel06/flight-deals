@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>YUL Flight Deals</title>
+  <link rel="stylesheet" href="style.css">
+  <script type="module" src="app.js"></script>
+</head>
+<body>
+  <header class="top">
+    <h1>Flight deals from Montréal</h1>
+    <p id="status" class="status">Loading…</p>
+    <p class="note">Lowest fares found; may not include checked bags. Prices change fast, so verify before booking.</p>
+  </header>
+  <div class="layout">
+    <details class="filters" id="filters-panel" open>
+      <summary>Filters</summary>
+      <form id="filters">
+        <label>Minimum % off <output id="minPct-out">30%</output>
+          <input type="range" name="minPct" min="0" max="90" step="5" value="30">
+        </label>
+        <label>Max price (CAD)
+          <input type="number" name="maxPrice" min="0" step="50" placeholder="Any">
+        </label>
+        <label>Regions <small>(Ctrl/⌘-click for several)</small>
+          <select name="regions" multiple size="6"></select>
+        </label>
+        <label>Departure months
+          <select name="months" multiple size="6"></select>
+        </label>
+        <fieldset class="row">
+          <legend>Trip length (days)</legend>
+          <input type="number" name="minDays" min="2" max="30" value="2" aria-label="Minimum days">
+          to
+          <input type="number" name="maxDays" min="2" max="30" value="30" aria-label="Maximum days">
+        </fieldset>
+        <label class="check"><input type="checkbox" name="nonstop"> Nonstop only</label>
+        <label class="check"><input type="checkbox" name="bag"> Checked bag included</label>
+        <label>Max price age
+          <select name="maxAge">
+            <option value="2">2 days</option>
+            <option value="3">3 days</option>
+            <option value="7" selected>7 days</option>
+          </select>
+        </label>
+        <label class="check"><input type="checkbox" name="includeNew"> Include new routes</label>
+        <label>Sort by
+          <select name="sort">
+            <option value="pct">% off</option>
+            <option value="price">Price</option>
+            <option value="date">Departure date</option>
+            <option value="recent">Most recently searched</option>
+          </select>
+        </label>
+        <button type="reset">Reset filters</button>
+      </form>
+    </details>
+    <main id="results" aria-live="polite"></main>
+  </div>
+</body>
+</html>

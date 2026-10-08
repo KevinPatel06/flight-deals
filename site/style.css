@@ -1,0 +1,63 @@
+:root {
+  --bg: #f6f4ef; --surface: #ffffff; --text: #1d232b; --muted: #5d6673; --line: #e2ddd3;
+  --accent: #0b6e4f; --accent-ink: #ffffff; --warn: #b54708; --warn-bg: #fff4e5; --chip: #eef1f4;
+  --radius: 12px; --font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #12161b; --surface: #1b2128; --text: #e8eaed; --muted: #9aa4b1; --line: #2c343e;
+    --accent: #3fbf8f; --accent-ink: #0d1a14; --warn: #f5a524; --warn-bg: #2e2412; --chip: #252c35;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.5 var(--font); }
+
+.top { max-width: 1200px; margin: 0 auto; padding: 24px 16px 4px; }
+.top h1 { margin: 0 0 4px; font-size: 1.6rem; letter-spacing: -0.01em; }
+.status { margin: 0; color: var(--muted); }
+.status.stale { color: var(--warn); font-weight: 600; }
+.note { margin: 6px 0 0; font-size: 0.85rem; color: var(--muted); }
+
+.layout { display: grid; grid-template-columns: 280px 1fr; gap: 20px; align-items: start; max-width: 1200px; margin: 0 auto; padding: 16px; }
+.filters { position: sticky; top: 12px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px 16px; }
+.filters summary { font-weight: 600; cursor: pointer; }
+#filters { display: grid; gap: 12px; margin-top: 12px; }
+#filters label, #filters fieldset { display: grid; gap: 4px; margin: 0; padding: 0; border: 0; font-size: 0.9rem; }
+#filters legend { padding: 0; margin-bottom: 4px; }
+#filters small { color: var(--muted); }
+#filters .row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+#filters .row legend { width: 100%; }
+#filters .row input { width: 70px; }
+#filters .check { display: flex; align-items: center; gap: 8px; }
+input, select, button { font: inherit; color: inherit; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; }
+input[type="range"] { padding: 0; accent-color: var(--accent); }
+input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--accent); }
+button { cursor: pointer; }
+
+#results { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px; }
+.card { display: grid; gap: 6px; align-content: start; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; }
+.card header { display: flex; justify-content: space-between; align-items: start; gap: 8px; }
+.card h2 { margin: 0; font-size: 1.1rem; }
+.country { display: block; font-size: 0.8rem; font-weight: 400; color: var(--muted); }
+.pct { white-space: nowrap; background: var(--accent); color: var(--accent-ink); font-weight: 700; border-radius: 999px; padding: 2px 10px; }
+.pct.new { background: var(--chip); color: var(--muted); font-weight: 600; }
+.price { margin: 0; }
+.price strong { font-size: 1.5rem; }
+.normal { color: var(--muted); font-size: 0.9rem; }
+.meta, .dates, .age { margin: 0; color: var(--muted); font-size: 0.9rem; }
+.badges { display: flex; flex-wrap: wrap; gap: 6px; margin: 2px 0; padding: 0; list-style: none; }
+.badges li { background: var(--chip); border-radius: 999px; padding: 1px 9px; font-size: 0.78rem; }
+.badges .warn { background: var(--warn-bg); color: var(--warn); font-weight: 600; }
+.links { display: flex; gap: 8px; margin-top: 4px; }
+.links a { flex: 1; text-align: center; text-decoration: none; border: 1px solid var(--accent); color: var(--accent); border-radius: 8px; padding: 6px; font-weight: 600; font-size: 0.9rem; }
+.links a:hover { background: var(--accent); color: var(--accent-ink); }
+.more summary { cursor: pointer; color: var(--muted); font-size: 0.9rem; }
+.more ul { display: grid; gap: 8px; margin: 8px 0 0; padding: 0; list-style: none; }
+.more li { display: grid; gap: 2px; border-top: 1px solid var(--line); padding-top: 8px; font-size: 0.88rem; }
+.more .links a { padding: 3px; font-size: 0.8rem; }
+.empty { grid-column: 1 / -1; text-align: center; color: var(--muted); padding: 40px 0; }
+
+@media (max-width: 800px) {
+  .layout { grid-template-columns: 1fr; }
+  .filters { position: static; }
+}
