@@ -1,10 +1,11 @@
 import copy
 import json
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 import pytest
 
 from factories import TODAY, make_fare
+from scanner.check import GoogleCheck
 from scanner.places import Places
 from scanner.publish import build_deals, google_link, pick_best, validate, write_deals
 from scanner.scoring import ScoredFare
@@ -68,7 +69,10 @@ def test_build_deals_groups_by_destination():
     deals = sample_deals()
     assert deals["generated_at"] == "2026-10-08T10:05:00Z"
     assert deals["origin"] == "YUL"
-    assert deals["scan"] == {"date": "2026-10-08", "fares": 3, "destinations": 2, "rejected": {"stops": 3}}
+    assert deals["scan"] == {
+        "date": "2026-10-08", "fares": 3, "destinations": 2, "rejected": {"stops": 3},
+        "google": {"checked_today": 0, "searches_left": None, "note": None},
+    }
 
     lis = next(d for d in deals["destinations"] if d["city"] == "LIS")
     assert (lis["name"], lis["country"], lis["country_code"], lis["region"]) == ("Lisbon", "Portugal", "PT", "Europe")
@@ -123,3 +127,67 @@ def test_write_creates_parent_and_round_trips(tmp_path):
     deals = sample_deals()
     write_deals(deals, out)
     assert json.loads(out.read_text(encoding="utf-8")) == deals
+
+
+def gcheck(price=480, checked_on=TODAY, depart=date(2026, 12, 1), ret=date(2026, 12, 10), **overrides):
+    values = dict(checked_on=checked_on, origin="YUL", dest_city="LIS", airport="LIS", depart=depart, return_date=ret,
+                  tp_price=500, status="ok", price=price, level="low", typical_low=600, typical_high=800,
+                  history=((date(2026, 9, 17), 620), (date(2026, 10, 8), price)),
+                  url="https://www.google.com/travel/flights?tfs=abc")
+    values.update(overrides)
+    return GoogleCheck(**values)
+
+
+def deals_with(checks, **kwargs):
+    return build_deals([scored(500, 40), scored(300, None, dest="QQQ")], PLACES, origin="YUL", scan_date=TODAY,
+                       rejected={}, generated_at=NOW, checks=checks, **kwargs)
+
+
+def lis_best(deals):
+    return next(d for d in deals["destinations"] if d["city"] == "LIS")["best"]
+
+
+def test_build_deals_attaches_the_google_check():
+    deals = deals_with([gcheck()], searches_left=230, google_note=None)
+    google = lis_best(deals)["google"]
+    assert google == {
+        "checked_on": "2026-10-08", "status": "ok", "price": 480, "level": "low", "typical": [600, 800],
+        "pct_below": 31, "confirmed": True, "history": [["2026-09-17", 620], ["2026-10-08", 480]],
+    }
+    assert lis_best(deals)["links"]["google"] == "https://www.google.com/travel/flights?tfs=abc"
+    assert deals["scan"]["google"] == {"checked_today": 1, "searches_left": 230, "note": None}
+    assert validate(deals) == []
+
+
+def test_confirmed_compares_with_todays_price():
+    assert lis_best(deals_with([gcheck(price=550)]))["google"]["confirmed"] is True   # 500 * 1.10 = 550
+    assert lis_best(deals_with([gcheck(price=551)]))["google"]["confirmed"] is False
+
+
+def test_newest_check_wins_and_none_status_is_short():
+    older = gcheck(price=700, checked_on=TODAY - timedelta(days=2))
+    newer = gcheck(status="none", price=None, level=None, typical_low=None, typical_high=None, history=(), url=None)
+    best = lis_best(deals_with([older, newer]))
+    assert best["google"] == {"checked_on": "2026-10-08", "status": "none"}
+    assert best["links"]["google"].startswith("https://www.google.com/travel/flights?q=")
+
+
+def test_build_deals_ignores_old_and_unmatched_checks():
+    stale = gcheck(checked_on=TODAY - timedelta(days=7))
+    other_dates = gcheck(depart=date(2026, 12, 2))
+    deals = deals_with([stale, other_dates])
+    assert "google" not in lis_best(deals)
+    assert deals["scan"]["google"] == {"checked_today": 1, "searches_left": None, "note": None}
+
+
+def test_no_typical_range_gives_null_typical_and_pct():
+    google = lis_best(deals_with([gcheck(typical_low=None, typical_high=None)]))["google"]
+    assert (google["typical"], google["pct_below"]) == (None, None)
+
+
+def test_validate_rejects_bad_google_objects():
+    deals = deals_with([gcheck()])
+    for bad in ("x", {"status": "maybe"}, {"status": "ok", "price": "480"}):
+        broken = copy.deepcopy(deals)
+        next(d for d in broken["destinations"] if d["city"] == "LIS")["options"][0]["google"] = bad
+        assert any("google" in e for e in validate(broken))

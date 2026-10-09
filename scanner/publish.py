@@ -3,12 +3,16 @@ from __future__ import annotations
 
 import json
 import os
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from urllib.parse import quote
 
+from scanner.check import GoogleCheck
 from scanner.places import Places
 from scanner.scoring import ScoredFare
+
+SHOW_DAYS = 7
+CONFIRM_TOLERANCE = 0.10
 
 
 def google_link(origin: str, airport: str, depart: date, ret: date) -> str:
@@ -26,12 +30,40 @@ def pick_best(options: list[dict]) -> dict:
     return min(options, key=_rank)
 
 
-def fare_json(scored: ScoredFare) -> dict:
+def google_json(check: GoogleCheck, price: int) -> dict:
+    """The page's view of a check; `confirmed` compares Google with today's fare price."""
+    if check.status != "ok":
+        return {"checked_on": check.checked_on.isoformat(), "status": check.status}
+    typical = [check.typical_low, check.typical_high] if check.typical_low is not None else None
+    return {
+        "checked_on": check.checked_on.isoformat(),
+        "status": "ok",
+        "price": check.price,
+        "level": check.level,
+        "typical": typical,
+        "pct_below": check.pct_below,
+        "confirmed": check.price <= price * (1 + CONFIRM_TOLERANCE),
+        "history": [[day.isoformat(), value] for day, value in check.history],
+    }
+
+
+def latest_checks(checks, today: date) -> dict[tuple, GoogleCheck]:
+    """Newest check per trip from the last SHOW_DAYS days."""
+    latest: dict[tuple, GoogleCheck] = {}
+    for check in checks:
+        if check.checked_on <= today - timedelta(days=SHOW_DAYS):
+            continue
+        if check.trip not in latest or check.checked_on >= latest[check.trip].checked_on:
+            latest[check.trip] = check
+    return latest
+
+
+def fare_json(scored: ScoredFare, check: GoogleCheck | None = None) -> dict:
     fare = scored.fare
     links = {"google": google_link(fare.origin, fare.dest_airport, fare.depart_date, fare.return_date)}
     if fare.link:
         links["aviasales"] = fare.link
-    return {
+    option = {
         "airport": fare.dest_airport,
         "depart": fare.depart_date.isoformat(),
         "return": fare.return_date.isoformat(),
@@ -51,6 +83,11 @@ def fare_json(scored: ScoredFare) -> dict:
         "badges": list(scored.badges),
         "links": links,
     }
+    if check is not None:
+        option["google"] = google_json(check, fare.price)
+        if check.status == "ok" and check.url:
+            option["links"]["google"] = check.url
+    return option
 
 
 def build_deals(
@@ -61,14 +98,21 @@ def build_deals(
     scan_date: date,
     rejected: dict[str, int],
     generated_at: datetime,
+    checks=(),
+    searches_left: int | None = None,
+    google_note: str | None = None,
 ) -> dict:
+    latest = latest_checks(checks, scan_date)
     by_city: dict[str, list[ScoredFare]] = {}
     for item in scored:
         by_city.setdefault(item.fare.dest_city, []).append(item)
     destinations = []
     for city, items in sorted(by_city.items()):
         place = places.lookup(city)
-        options = sorted((fare_json(item) for item in items), key=_rank)
+        options = sorted(
+            (fare_json(item, latest.get((item.fare.dest_airport, item.fare.depart_date, item.fare.return_date))) for item in items),
+            key=_rank,
+        )
         destinations.append({
             "city": city,
             "name": place.name,
@@ -86,6 +130,11 @@ def build_deals(
             "fares": len(scored),
             "destinations": len(destinations),
             "rejected": dict(sorted(rejected.items())),
+            "google": {
+                "checked_today": sum(1 for c in checks if c.checked_on == scan_date),
+                "searches_left": searches_left,
+                "note": google_note,
+            },
         },
         "destinations": destinations,
     }
@@ -110,6 +159,12 @@ def _option_errors(option, where: str) -> list[str]:
     links = option.get("links")
     if not (isinstance(links, dict) and isinstance(links.get("google"), str)):
         errors.append(f"{where}: google link missing")
+    if "google" in option:
+        google = option["google"]
+        if not isinstance(google, dict) or google.get("status") not in ("ok", "none"):
+            errors.append(f"{where}: bad google")
+        elif google["status"] == "ok" and not (isinstance(google.get("price"), int) and google["price"] > 0):
+            errors.append(f"{where}: bad google price")
     return errors
 
 
