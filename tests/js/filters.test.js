@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   DEFAULTS, ageDays, optionMatches, applyFilters, sortResults, toQuery, fromQuery, countDeals, hoursSince, localISODate,
+  dealPct, googleTrend, compareOptions,
 } from "../../site/filters.js";
 
 const TODAY = "2026-10-08";
@@ -116,4 +117,41 @@ test("countDeals and hoursSince", () => {
 test("localISODate formats the local calendar date without locale data", () => {
   assert.equal(localISODate(new Date(2026, 0, 5, 23, 30)), "2026-01-05");
   assert.equal(localISODate(new Date(2026, 11, 31, 0, 1)), "2026-12-31");
+});
+
+const g = (o = {}) => ({ checked_on: "2026-10-08", status: "ok", price: 480, level: "low", typical: [600, 800],
+  pct_below: 31, confirmed: true, history: [], ...o });
+
+test("dealPct falls back to Google's percent for new routes", () => {
+  assert.equal(dealPct(opt()), 44);
+  assert.equal(dealPct(opt({ pct_off: null })), null);
+  assert.equal(dealPct(opt({ pct_off: null, google: g() })), 31);
+  assert.equal(dealPct(opt({ pct_off: null, google: { checked_on: "2026-10-08", status: "none" } })), null);
+  assert.equal(dealPct(opt({ pct_off: 20, google: g() })), 20);
+});
+
+test("Google-checked new routes pass the percent filter without includeNew", () => {
+  assert.equal(optionMatches(opt({ pct_off: null, google: g() }), f(), TODAY), true);
+  assert.equal(optionMatches(opt({ pct_off: null, google: g({ pct_below: 10 }) }), f(), TODAY), false);
+});
+
+test("googleOnly keeps only options Google priced", () => {
+  assert.equal(optionMatches(opt(), f({ googleOnly: true }), TODAY), false);
+  assert.equal(optionMatches(opt({ google: { checked_on: "2026-10-08", status: "none" } }), f({ googleOnly: true }), TODAY), false);
+  assert.equal(optionMatches(opt({ google: g() }), f({ googleOnly: true }), TODAY), true);
+  assert.equal(fromQuery(toQuery(f({ googleOnly: true }))).googleOnly, true);
+});
+
+test("compareOptions and countDeals use the Google percent", () => {
+  const checked = opt({ pct_off: null, price: 900, google: g({ pct_below: 50 }) });
+  assert.equal([opt(), checked].sort(compareOptions)[0], checked);
+  assert.equal(countDeals([dest("A", "Europe", [checked])], 30, TODAY), 1);
+});
+
+test("googleTrend describes the last three weeks", () => {
+  assert.equal(googleTrend([["2026-09-01", 500], ["2026-09-17", 520], ["2026-10-08", 340]]), "↓35% in 3 weeks · lowest in 60 days");
+  assert.equal(googleTrend([["2026-09-17", 400], ["2026-10-08", 480]]), "↑20% in 3 weeks");
+  assert.equal(googleTrend([["2026-09-17", 500], ["2026-10-08", 510]]), "steady over 3 weeks");
+  assert.equal(googleTrend([["2026-10-08", 500]]), null);
+  assert.equal(googleTrend(undefined), null);
 });

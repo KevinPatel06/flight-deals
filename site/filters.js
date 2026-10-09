@@ -2,25 +2,43 @@
 
 export const DEFAULTS = Object.freeze({
   minPct: 30, maxPrice: null, regions: [], months: [], minDays: 2, maxDays: 30,
-  nonstop: false, bag: false, maxAge: 7, includeNew: false, sort: "pct",
+  nonstop: false, bag: false, maxAge: 7, includeNew: false, googleOnly: false, sort: "pct",
 });
 
 const DAY_MS = 86_400_000;
 const NUMBERS = ["minPct", "maxPrice", "minDays", "maxDays", "maxAge"];
-const BOOLEANS = ["nonstop", "bag", "includeNew"];
+const BOOLEANS = ["nonstop", "bag", "includeNew", "googleOnly"];
 const LISTS = ["regions", "months"];
 
 export function ageDays(option, today) {
   return Math.floor((Date.parse(today) - Date.parse(option.searched_on)) / DAY_MS);
 }
 
+// Our own percent off when history exists; otherwise Google's percent below its typical price.
+export function dealPct(o) {
+  return o.pct_off ?? o.google?.pct_below ?? null;
+}
+
+export function googleTrend(history) {
+  if (!Array.isArray(history) || history.length < 2) return null;
+  const [lastDay, last] = history[history.length - 1];
+  const cutoff = Date.parse(lastDay) - 21 * DAY_MS;
+  const before = history.find(([day]) => Date.parse(day) >= cutoff)[1];
+  const change = Math.round((100 * (last - before)) / before);
+  const parts = [Math.abs(change) < 5 ? "steady over 3 weeks" : `${change < 0 ? "↓" : "↑"}${Math.abs(change)}% in 3 weeks`];
+  if (last <= Math.min(...history.map(([, price]) => price))) parts.push("lowest in 60 days");
+  return parts.join(" · ");
+}
+
 export function optionMatches(o, f, today) {
   if (o.depart <= today) return false;
-  if (o.pct_off === null) {
+  const pct = dealPct(o);
+  if (pct === null) {
     if (!f.includeNew) return false;
-  } else if (o.pct_off < f.minPct) {
+  } else if (pct < f.minPct) {
     return false;
   }
+  if (f.googleOnly && o.google?.status !== "ok") return false;
   if (f.maxPrice !== null && o.price > f.maxPrice) return false;
   if (f.months.length && !f.months.includes(o.depart.slice(0, 7))) return false;
   if (o.days < f.minDays || o.days > f.maxDays) return false;
@@ -31,7 +49,7 @@ export function optionMatches(o, f, today) {
 }
 
 export function compareOptions(a, b) {
-  return (b.pct_off ?? -1) - (a.pct_off ?? -1) || a.price - b.price;
+  return (dealPct(b) ?? -1) - (dealPct(a) ?? -1) || a.price - b.price;
 }
 
 const SORTERS = {
@@ -57,7 +75,7 @@ export function applyFilters(destinations, f, today) {
 }
 
 export function countDeals(destinations, minPct, today) {
-  return destinations.filter((d) => d.options.some((o) => o.depart > today && o.pct_off !== null && o.pct_off >= minPct)).length;
+  return destinations.filter((d) => d.options.some((o) => o.depart > today && dealPct(o) !== null && dealPct(o) >= minPct)).length;
 }
 
 // YYYY-MM-DD for the viewer's local calendar day, built by hand: toLocaleDateString output varies by browser.
