@@ -46,8 +46,10 @@ Non-goals:
 
 ## 4. Selection (`scanner/verify.py`, pure)
 
-Constants: `DAILY_LIMIT = 7`, `REPEAT_DAYS = 3`, `MIN_LEFT = 10`,
-`SHOW_DAYS = 7`, `PICK_PCT = 30`, `CONFIRM_TOLERANCE = 0.10`.
+Constants: `DAILY_LIMIT = 7`, `REPEAT_DAYS = 3`, `MIN_LEFT = 10`, `PICK_PCT = 30`,
+`MAX_ERRORS = 2` (in `verify.py`); `SHOW_DAYS = 7`, `CONFIRM_TOLERANCE = 0.10`
+(in `publish.py`). `pick` receives the last 90 days of checks so "most recently
+checked" looks back further than the 7 days shown on the page.
 
 `pick(scored, places, checks, today, limit=DAILY_LIMIT) -> list[ScoredFare]`
 
@@ -65,11 +67,11 @@ Constants: `DAILY_LIMIT = 7`, `REPEAT_DAYS = 3`, `MIN_LEFT = 10`,
 
 ## 5. SerpApi source (`scanner/sources/serpapi.py`)
 
-- `GoogleCheck` (frozen dataclass): `checked_on: date`, `origin`, `dest_city`,
+- `GoogleCheck` (frozen dataclass in `scanner/check.py`, so storage does not import the source): `checked_on: date`, `origin`, `dest_city`,
   `airport`, `depart: date`, `return_date: date`, `tp_price: int`,
   `status: "ok" | "none"`, `price: int | None`, `level: str | None`,
   `typical_low/typical_high: int | None`, `history: tuple[(date, int), ...]`,
-  `url: str | None`. Properties: `pct_below` (see §7) and `confirmed`.
+  `url: str | None`. Properties: `trip` and `pct_below` (see §7).
 - Search: `GET https://serpapi.com/search.json` with `engine=google_flights`,
   `departure_id`, `arrival_id` (= `fare.dest_airport`), `outbound_date`,
   `return_date`, `type=1`, `stops=2` (one stop or fewer, matching the scan's
@@ -85,7 +87,7 @@ Constants: `DAILY_LIMIT = 7`, `REPEAT_DAYS = 3`, `MIN_LEFT = 10`,
     Any other `error` → raises `ApiError`.
 - Quota: `GET https://serpapi.com/account.json` (free, does not use a search) →
   `plan_searches_left` (int). If fewer than `MIN_LEFT`, no searches run.
-- HTTP goes through `scanner/http.py` (`http_get_json`, `ApiError`, retries),
+- HTTP goes through `scanner/net.py` (not `http.py`, which would shadow the stdlib `http` package) (`http_get_json`, `ApiError`, retries),
   moved from `sources/travelpayouts.py` (which re-exports both names).
   `ApiError` messages contain the URL without query string, so the key never
   appears in logs; callers print `str(err)` only, never tracebacks.
@@ -116,7 +118,7 @@ For each option, the newest check with the same `airport`, `depart`,
 
 - `pct_below = max(0, round(100 × (1 − price / ((low + high) / 2))))`;
   null when there is no typical range.
-- `confirmed = price ≤ tp_price × (1 + CONFIRM_TOLERANCE)`.
+- `confirmed = price ≤ option price today × (1 + CONFIRM_TOLERANCE)` (today's fare, not the price on the check day).
 - `status: "none"` → `{"checked_on", "status"}` only.
 - When `url` exists it replaces `links.google` for that option.
 - `scan.google = {"checked_today": n, "searches_left": n | null, "note": str | null}`.
@@ -145,9 +147,10 @@ After scoring, before `build_deals`:
 1. If no checker: skip with note. A checker is built from `SERPAPI_KEY`
    (environment, then `.env`) only when the Travelpayouts source is not
    injected; tests pass a fake checker explicitly.
-2. `checks = load_checks(data, since=today − SHOW_DAYS)`; `picks = pick(...)`.
+2. `checks = load_checks(data, since=today − 90 days)`; `picks = pick(...)`.
 3. If picks: read quota; if `< MIN_LEFT` skip with note. Else check each pick;
-   on `ApiError` print one line, stop checking (save what succeeded).
+   on `ApiError` print one line and move to the next pick; stop after
+   `MAX_ERRORS` consecutive errors (bad key, outage). Failed checks are not saved.
 4. `append_checks(new)`; `build_deals(..., checks=checks + new)`.
 5. Print `google: n checked, n confirmed, searches left n` (or the note).
 `--seed` and failed/too-small scans never run checks.
