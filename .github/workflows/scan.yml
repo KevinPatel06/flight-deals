@@ -63,6 +63,7 @@ jobs:
         run: python -m scanner
         env:
           TRAVELPAYOUTS_TOKEN: ${{ secrets.TRAVELPAYOUTS_TOKEN }}
+          SERPAPI_KEY: ${{ secrets.SERPAPI_KEY }}
 
       - name: Commit results
         run: |

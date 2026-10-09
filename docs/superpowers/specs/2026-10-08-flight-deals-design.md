@@ -311,9 +311,7 @@ details to confirm the `static_fare_key` reading.
 
 ## 12. Future upgrades (not in v1)
 
-- **Live verification (approach C):** daily SerpApi Google Flights check
-  (free tier, 250/month) of the top ~8 deals; verified deals get a ✓ badge.
-  Added as a second step after scoring; no changes to sources or scoring.
+- **Live verification:** done — see 2026-10-08-google-checks-design.md.
 - Additional origins (YQB, YOW, BTV/PBG) via the `origin` parameter.
 - Alerts (email / push) for deals above a chosen threshold.
 
