@@ -3,6 +3,7 @@ from datetime import date
 
 from factories import TODAY, make_fare
 from scanner import store
+from scanner.check import GoogleCheck
 
 
 def test_round_trip_preserves_every_field(tmp_path):
@@ -40,3 +41,39 @@ def test_seed_rows_are_filtered_by_search_day(tmp_path):
 
 def test_load_from_missing_directory(tmp_path):
     assert store.load(tmp_path / "nothing", since=TODAY) == []
+
+
+def make_check(**overrides) -> GoogleCheck:
+    values = dict(
+        checked_on=TODAY, origin="YUL", dest_city="CUN", airport="CUN", depart=date(2027, 1, 12),
+        return_date=date(2027, 1, 19), tp_price=380, status="ok", price=366, level="low", typical_low=410,
+        typical_high=495, history=((date(2026, 8, 9), 557), (date(2026, 8, 10), 545)),
+        url="https://www.google.com/travel/flights?tfs=abc&curr=CAD",
+    )
+    values.update(overrides)
+    return GoogleCheck(**values)
+
+
+def test_checks_round_trip_including_history_and_empty_fields(tmp_path):
+    full = make_check()
+    none = make_check(dest_city="XXX", airport="XXX", status="none", price=None, level=None, typical_low=None,
+                      typical_high=None, history=(), url=None)
+    store.append_checks([full, none], tmp_path)
+    store.append_checks([make_check(tp_price=390)], tmp_path)
+    loaded = store.load_checks(tmp_path, since=date(2026, 10, 1))
+    assert loaded == [full, none, make_check(tp_price=390)]
+    with gzip.open(tmp_path / "checks" / "2026-10.csv.gz", "rt", encoding="utf-8") as fh:
+        assert fh.read().count("checked_on,origin") == 1
+
+
+def test_load_checks_filters_by_check_day(tmp_path):
+    old = make_check(checked_on=date(2026, 9, 20))
+    store.append_checks([old, make_check()], tmp_path)
+    assert sorted(p.name for p in (tmp_path / "checks").iterdir()) == ["2026-09.csv.gz", "2026-10.csv.gz"]
+    assert store.load_checks(tmp_path, since=date(2026, 10, 1)) == [make_check()]
+    assert store.load_checks(tmp_path / "nothing", since=TODAY) == []
+
+
+def test_append_no_checks_writes_nothing(tmp_path):
+    store.append_checks([], tmp_path)
+    assert not (tmp_path / "checks").exists()
