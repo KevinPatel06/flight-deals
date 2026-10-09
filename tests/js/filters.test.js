@@ -155,3 +155,7 @@ test("googleTrend describes the last three weeks", () => {
   assert.equal(googleTrend([["2026-10-08", 500]]), null);
   assert.equal(googleTrend(undefined), null);
 });
+
+test("includeNew still shows every new route, Google-checked or not", () => {
+  assert.equal(optionMatches(opt({ pct_off: null, google: g({ pct_below: 10 }) }), f({ includeNew: true }), TODAY), true);
+});

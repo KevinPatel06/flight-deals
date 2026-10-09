@@ -32,10 +32,11 @@ export function googleTrend(history) {
 
 export function optionMatches(o, f, today) {
   if (o.depart <= today) return false;
+  // "Include new routes" shows every route without our own history, even when Google priced it.
   const pct = dealPct(o);
-  if (pct === null) {
-    if (!f.includeNew) return false;
-  } else if (pct < f.minPct) {
+  if (o.pct_off === null && f.includeNew) {
+    // shown regardless of percent
+  } else if (pct === null || pct < f.minPct) {
     return false;
   }
   if (f.googleOnly && o.google?.status !== "ok") return false;

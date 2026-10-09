@@ -1,4 +1,6 @@
-import { DEFAULTS, ageDays, applyFilters, countDeals, fromQuery, hoursSince, localISODate, toQuery } from "./filters.js";
+import {
+  DEFAULTS, ageDays, applyFilters, countDeals, dealPct, fromQuery, googleTrend, hoursSince, localISODate, toQuery,
+} from "./filters.js";
 
 const AIRLINES = {
   AA: "American", AC: "Air Canada", AF: "Air France", AM: "Aeroméxico", AT: "Royal Air Maroc",
@@ -57,15 +59,46 @@ function links(o) {
   return `<div class="links">${aviasales}<a href="${esc(o.links.google)}" target="_blank" rel="noopener">Google Flights</a></div>`;
 }
 
-const pctBadge = (o) =>
-  o.pct_off === null ? `<span class="pct new">New</span>` : `<span class="pct">−${o.pct_off}%</span>`;
+function sparkline(history) {
+  const prices = history.map(([, price]) => price);
+  const min = Math.min(...prices);
+  const span = Math.max(...prices) - min || 1;
+  const points = prices
+    .map((p, i) => `${((i * 100) / (prices.length - 1)).toFixed(1)},${(19 - ((p - min) * 18) / span).toFixed(1)}`)
+    .join(" ");
+  return `<svg class="spark" viewBox="0 0 100 20" preserveAspectRatio="none" aria-hidden="true"><polyline points="${points}"/></svg>`;
+}
+
+function googleLine(o) {
+  const g = o.google;
+  if (!g) return "";
+  if (g.status !== "ok") return `<p class="google muted">Google: no matching flights found (${esc(g.checked_on)})</p>`;
+  const head = g.confirmed ? `Google ✓ ${money(g.price)}` : `⚠ Google shows ${money(g.price)}`;
+  const parts = [
+    g.level,
+    g.typical ? `typical ${money(g.typical[0])}–${money(g.typical[1])}` : null,
+    g.pct_below > 0 ? `${g.pct_below}% below typical` : null,
+    googleTrend(g.history),
+  ].filter(Boolean);
+  const spark = Array.isArray(g.history) && g.history.length > 1 ? sparkline(g.history) : "";
+  return `<div class="google${g.confirmed ? "" : " warn"}"><p><strong>${esc(head)}</strong>${parts.length ? " · " + esc(parts.join(" · ")) : ""}</p>${spark}</div>`;
+}
+
+function pctBadge(o) {
+  if (o.pct_off !== null) return `<span class="pct">−${o.pct_off}%</span>`;
+  const pct = dealPct(o);
+  return pct === null
+    ? `<span class="pct new">New</span>`
+    : `<span class="pct google" title="Below Google's typical price">−${pct}% vs Google</span>`;
+}
 
 function optionRow(o) {
-  const pct = o.pct_off === null ? "" : ` (−${o.pct_off}%)`;
+  const pct = dealPct(o) === null ? "" : ` (−${dealPct(o)}%${o.pct_off === null ? " vs Google" : ""})`;
   const bag = o.checked_bag === true ? " · 🧳" : "";
+  const checked = o.google?.status === "ok" ? ` · ${o.google.confirmed ? "✓" : "⚠"} Google ${money(o.google.price)}` : "";
   return `<li>
     <span><strong>${money(o.price)}</strong>${pct} · ${fmtDate(o.depart)} – ${fmtDate(o.return)} (${o.days} days)</span>
-    <span class="age">${esc(stopsText(o))} · ${esc(airline(o.airline))} · searched ${ageText(o)}${bag}</span>
+    <span class="age">${esc(stopsText(o))} · ${esc(airline(o.airline))} · searched ${ageText(o)}${bag}${checked}</span>
     ${links(o)}
   </li>`;
 }
@@ -85,6 +118,7 @@ function card(d) {
     <p class="price"><strong>${money(b.price)}</strong>${normal}</p>
     <p class="meta">${esc(stopsText(b))} · ${esc(airline(b.airline))}</p>
     <p class="dates">${fmtDate(b.depart)} – ${fmtDate(b.return)} (${b.days} days)</p>
+    ${googleLine(b)}
     ${badges(b)}
     <p class="age">Searched ${ageText(b)}</p>
     ${links(b)}
@@ -109,6 +143,7 @@ function readForm() {
     bag: data.has("bag"),
     maxAge: num("maxAge") ?? DEFAULTS.maxAge,
     includeNew: data.has("includeNew"),
+    googleOnly: data.has("googleOnly"),
     sort: data.get("sort") || DEFAULTS.sort,
   };
 }
@@ -124,6 +159,7 @@ function writeForm(f) {
   el.nonstop.checked = f.nonstop;
   el.bag.checked = f.bag;
   el.includeNew.checked = f.includeNew;
+  el.googleOnly.checked = f.googleOnly;
   el.maxAge.value = String(f.maxAge);
   el.sort.value = f.sort;
 }
@@ -157,7 +193,11 @@ async function start() {
   destinations = data.destinations;
   const hours = hoursSince(data.generated_at, Date.now());
   const ago = hours < 1 ? "under an hour" : `${hours} hour${hours === 1 ? "" : "s"}`;
-  status.textContent = `Last scan: ${ago} ago · ${destinations.length} destinations · ${countDeals(destinations, 30, today)} deals ≥ 30%`;
+  const google = data.scan.google;
+  const checks = google
+    ? ` · Google checked ${google.checked_today} today${google.searches_left !== null ? ` (${google.searches_left} left this month)` : ""}`
+    : "";
+  status.textContent = `Last scan: ${ago} ago · ${destinations.length} destinations · ${countDeals(destinations, 30, today)} deals ≥ 30%${checks}`;
   status.classList.toggle("stale", hours > 24);
 
   fillOptions(form.elements.regions, [...new Set(destinations.map((d) => d.region))].sort(), (r) => r);
