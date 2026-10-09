@@ -9,7 +9,8 @@ from scanner.verify import CheckRun, pick, run_checks
 
 PLACES = Places(
     {c: {"name": c, "country": cc} for c, cc in
-     [("LIS", "PT"), ("PAR", "FR"), ("CUN", "MX"), ("PUJ", "DO"), ("YVR", "CA"), ("YYC", "CA"), ("YTO", "CA"), ("TYO", "JP")]},
+     [("LIS", "PT"), ("PAR", "FR"), ("CUN", "MX"), ("PUJ", "DO"), ("YVR", "CA"), ("YYC", "CA"), ("YTO", "CA"), ("TYO", "JP"),
+      ("NYC", "US"), ("MIA", "US"), ("HNL", "US"), ("OGG", "US"), ("KOA", "US")]},
     {}, {},
 )
 
@@ -140,3 +141,38 @@ def test_unexpected_errors_become_a_note_and_never_raise():
     assert run.checks == [] and run.note == "check failed: TypeError"
     run = run_checks(BrokenChecker(quota_error=True), [scored("LIS", 50)], TODAY)
     assert run.checks == [] and run.note == "quota check failed: KeyError"
+
+
+def test_united_states_is_skipped_except_hawaii():
+    items = [scored("NYC", 60), scored("MIA", None), scored("HNL", 40), scored("OGG", None), scored("KOA", None, price=700)]
+    assert cities(pick(items, PLACES, [], TODAY)) == ["HNL", "OGG", "KOA"]
+
+
+def test_cities_missing_from_reference_data_are_skipped():
+    assert pick([scored("QQQ", 50)], PLACES, [], TODAY) == []
+
+
+def test_city_google_could_not_price_rests_two_weeks_whatever_the_dates():
+    lis = scored("LIS", 50)
+    none = check_for(lis, TODAY - timedelta(days=13), status="none", price=None, depart=date(2027, 5, 1))
+    assert pick([lis], PLACES, [none], TODAY) == []
+    older = check_for(lis, TODAY - timedelta(days=14), status="none", price=None, depart=date(2027, 5, 1))
+    assert cities(pick([lis], PLACES, [older], TODAY)) == ["LIS"]
+    priced_later = check_for(lis, TODAY - timedelta(days=5), depart=date(2027, 6, 1))
+    assert cities(pick([lis], PLACES, [none, priced_later], TODAY)) == ["LIS"]
+
+
+def test_checks_from_another_origin_do_not_block_or_count():
+    lis = scored("LIS", 50)
+    other = check_for(lis, TODAY, origin="YYZ")
+    assert cities(pick([lis], PLACES, [other], TODAY)) == ["LIS"]
+    assert len(pick([scored(c, 50) for c in ("LIS", "PAR")], PLACES, [other] * 7, TODAY)) == 2
+
+
+def test_run_checks_never_spends_below_the_floor():
+    checker = FakeChecker(left=12)
+    run = run_checks(checker, [scored(c, 50) for c in ("LIS", "PAR", "CUN", "PUJ")], TODAY)
+    assert checker.checked == ["LIS", "PAR"]
+    assert (run.searches_left, run.note) == (10, None)
+    checker = FakeChecker(left=10)
+    assert run_checks(checker, [scored("LIS", 50)], TODAY) == CheckRun([], 10, "only 10 Google searches left this month")

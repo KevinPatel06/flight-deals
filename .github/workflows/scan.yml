@@ -72,10 +72,15 @@ jobs:
           git add data site/deals.json
           if git diff --cached --quiet; then
             echo "No changes to commit"
-          else
-            git commit -m "scan: $(date -u +%F)"
-            git push
+            exit 0
           fi
+          git commit -m "scan: $(date -u +%F)"
+          # A push to main during the scan rejects ours; rebase onto it so the Google checks we spent are kept.
+          for attempt in 1 2 3; do
+            git push && exit 0
+            git pull --rebase origin main
+          done
+          exit 1
 
       - uses: actions/configure-pages@v5
 

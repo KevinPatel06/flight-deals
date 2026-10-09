@@ -23,8 +23,8 @@ class GoogleCheck:
     url: str | None = None
 
     @property
-    def trip(self) -> tuple[str, date, date]:
-        return self.airport, self.depart, self.return_date
+    def trip(self) -> tuple[str, str, date, date]:
+        return self.origin, self.airport, self.depart, self.return_date
 
     @property
     def pct_below(self) -> int | None:

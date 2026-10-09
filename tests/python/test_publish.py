@@ -191,3 +191,7 @@ def test_validate_rejects_bad_google_objects():
         broken = copy.deepcopy(deals)
         next(d for d in broken["destinations"] if d["city"] == "LIS")["options"][0]["google"] = bad
         assert any("google" in e for e in validate(broken))
+
+
+def test_checks_from_another_origin_are_not_attached():
+    assert "google" not in lis_best(deals_with([gcheck(origin="YYZ")]))

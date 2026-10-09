@@ -21,7 +21,7 @@ def test_parse_check_reads_real_response():
     assert len(check.history) == 61
     assert check.history[0] == (date(2026, 8, 9), 557)
     assert check.url.startswith("https://www.google.com/travel/flights")
-    assert check.trip == ("CUN", date(2027, 1, 12), date(2027, 1, 19))
+    assert check.trip == ("YUL", "CUN", date(2027, 1, 12), date(2027, 1, 19))
     assert (check.tp_price, check.dest_city, check.checked_on) == (380, "CUN", TODAY)
 
 
@@ -113,3 +113,8 @@ def test_parse_check_survives_wrong_container_types():
     check = parse_check(body, CUN, TODAY)
     assert (check.status, check.price, check.level) == ("ok", 400, None)
     assert check.history == ((date(2026, 8, 13), 250),)
+
+
+def test_inverted_typical_range_is_dropped():
+    check = parse_check({"price_insights": {"lowest_price": 400, "typical_price_range": [500, 450]}}, CUN, TODAY)
+    assert (check.typical_low, check.typical_high, check.pct_below) == (None, None, None)

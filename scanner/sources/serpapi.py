@@ -51,7 +51,7 @@ def parse_check(data, fare: Fare, checked_on: date) -> GoogleCheck:
         return GoogleCheck(status="none", **trip)
     typical = insights.get("typical_price_range")
     low = high = None
-    if isinstance(typical, list) and len(typical) == 2 and all(_price(v) for v in typical):
+    if isinstance(typical, list) and len(typical) == 2 and all(_price(v) for v in typical) and typical[0] <= typical[1]:
         low, high = typical
     level = insights.get("price_level")
     meta = data.get("search_metadata") if isinstance(data.get("search_metadata"), dict) else {}

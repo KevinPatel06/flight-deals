@@ -14,11 +14,18 @@ REPEAT_DAYS = 3
 MIN_LEFT = 10
 PICK_PCT = 30
 MAX_ERRORS = 2
-DOMESTIC = "CA"
+NONE_REST_DAYS = 14  # a city Google could not price waits this long, whatever its dates
+SKIP_COUNTRIES = {"CA", "US", ""}  # "" = city missing from the reference data
+HAWAII = {"HNL", "OGG", "KOA", "LIH", "ITO", "MKK", "LNY", "JHM", "MUE"}
 
 
-def _trip(item: ScoredFare) -> tuple[str, date, date]:
-    return item.fare.dest_airport, item.fare.depart_date, item.fare.return_date
+def _trip(item: ScoredFare) -> tuple[str, str, date, date]:
+    return item.fare.origin, item.fare.dest_airport, item.fare.depart_date, item.fare.return_date
+
+
+def _checkable(city: str, places: Places) -> bool:
+    """International only: no Canada, no United States except Hawaii, no unknown cities."""
+    return city in HAWAII or places.lookup(city).country_code not in SKIP_COUNTRIES
 
 
 def _rank(item: ScoredFare) -> tuple:
@@ -28,13 +35,22 @@ def _rank(item: ScoredFare) -> tuple:
 
 def pick(scored: list[ScoredFare], places: Places, checks: list[GoogleCheck], today: date, limit: int = DAILY_LIMIT) -> list[ScoredFare]:
     """Today's international fares worth a Google check, best first, within what is left of today's limit."""
+    origins = {item.fare.origin for item in scored}
+    checks = [c for c in checks if c.origin in origins]
     remaining = limit - sum(1 for c in checks if c.checked_on == today)
     if remaining <= 0:
         return []
     recent = {c.trip for c in checks if c.checked_on > today - timedelta(days=REPEAT_DAYS)}
     last_checked: dict[str, date] = {}
+    newest: dict[str, GoogleCheck] = {}
     for c in checks:
         last_checked[c.dest_city] = max(last_checked.get(c.dest_city, date.min), c.checked_on)
+        if c.dest_city not in newest or c.checked_on >= newest[c.dest_city].checked_on:
+            newest[c.dest_city] = c
+    resting = {
+        city for city, c in newest.items()
+        if c.status == "none" and c.checked_on > today - timedelta(days=NONE_REST_DAYS)
+    }
     best: dict[str, ScoredFare] = {}
     for item in scored:
         city = item.fare.dest_city
@@ -42,7 +58,7 @@ def pick(scored: list[ScoredFare], places: Places, checks: list[GoogleCheck], to
             best[city] = item
     big, new = [], []
     for city, item in best.items():
-        if places.lookup(city).country_code == DOMESTIC or _trip(item) in recent:
+        if not _checkable(city, places) or city in resting or _trip(item) in recent:
             continue
         if item.pct_off is None:
             new.append(item)
@@ -73,8 +89,10 @@ def run_checks(checker, picks: list[ScoredFare], today: date) -> CheckRun:
         left = checker.searches_left()
     except Exception as err:  # noqa: BLE001  a check must never stop the publish
         return CheckRun(note=f"quota check failed: {_describe(err)}")
-    if left is not None and left < MIN_LEFT:
-        return CheckRun([], left, f"only {left} Google searches left this month")
+    if left is not None:
+        if left <= MIN_LEFT:
+            return CheckRun([], left, f"only {left} Google searches left this month")
+        picks = picks[: left - MIN_LEFT]  # never spend below the floor
     done: list[GoogleCheck] = []
     errors, note = 0, None
     for item in picks:

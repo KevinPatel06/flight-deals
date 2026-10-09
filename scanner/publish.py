@@ -110,7 +110,7 @@ def build_deals(
     for city, items in sorted(by_city.items()):
         place = places.lookup(city)
         options = sorted(
-            (fare_json(item, latest.get((item.fare.dest_airport, item.fare.depart_date, item.fare.return_date))) for item in items),
+            (fare_json(item, latest.get((item.fare.origin, item.fare.dest_airport, item.fare.depart_date, item.fare.return_date))) for item in items),
             key=_rank,
         )
         destinations.append({

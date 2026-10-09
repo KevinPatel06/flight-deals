@@ -17,17 +17,22 @@ export function ageDays(option, today) {
 // Our own percent off when history exists; otherwise Google's percent below its typical price,
 // but only when Google confirmed our fare (otherwise that percent describes Google's fare, not ours).
 export function dealPct(o) {
-  return o.pct_off ?? (o.google?.confirmed ? o.google.pct_below : null) ?? null;
+  const g = o.google;
+  return o.pct_off ?? (g?.confirmed && g.pct_below > 0 ? g.pct_below : null);
 }
 
 export function googleTrend(history) {
-  if (!Array.isArray(history) || history.length < 2) return null;
-  const [lastDay, last] = history[history.length - 1];
-  const cutoff = Date.parse(lastDay) - 21 * DAY_MS;
-  const before = history.find(([day]) => Date.parse(day) >= cutoff)[1];
+  if (!Array.isArray(history)) return null;
+  const points = history.map(([day, price]) => [Date.parse(day), price]).filter(([t]) => Number.isFinite(t));
+  if (points.length < 2) return null;
+  const [lastT, last] = points[points.length - 1];
+  const [beforeT, before] = points.find(([t]) => t >= lastT - 21 * DAY_MS);
+  const days = Math.round((lastT - beforeT) / DAY_MS);
+  if (days < 1) return null;
+  const span = days >= 21 ? "3 weeks" : days === 1 ? "1 day" : `${days} days`;
   const change = Math.round((100 * (last - before)) / before);
-  const parts = [Math.abs(change) < 5 ? "steady over 3 weeks" : `${change < 0 ? "↓" : "↑"}${Math.abs(change)}% in 3 weeks`];
-  if (last <= Math.min(...history.map(([, price]) => price))) parts.push("lowest in 60 days");
+  const parts = [Math.abs(change) < 5 ? `steady over ${span}` : `${change < 0 ? "↓" : "↑"}${Math.abs(change)}% in ${span}`];
+  if (last <= Math.min(...points.map(([, p]) => p))) parts.push(`lowest in ${Math.round((lastT - points[0][0]) / DAY_MS)} days`);
   return parts.join(" · ");
 }
 

@@ -149,7 +149,7 @@ test("compareOptions and countDeals use the Google percent", () => {
 });
 
 test("googleTrend describes the last three weeks", () => {
-  assert.equal(googleTrend([["2026-09-01", 500], ["2026-09-17", 520], ["2026-10-08", 340]]), "↓35% in 3 weeks · lowest in 60 days");
+  assert.equal(googleTrend([["2026-09-01", 500], ["2026-09-17", 520], ["2026-10-08", 340]]), "↓35% in 3 weeks · lowest in 37 days");
   assert.equal(googleTrend([["2026-09-17", 400], ["2026-10-08", 480]]), "↑20% in 3 weeks");
   assert.equal(googleTrend([["2026-09-17", 500], ["2026-10-08", 510]]), "steady over 3 weeks");
   assert.equal(googleTrend([["2026-10-08", 500]]), null);
@@ -162,4 +162,14 @@ test("includeNew still shows every new route, Google-checked or not", () => {
 
 test("Google's percent counts only when Google confirms our price", () => {
   assert.equal(dealPct(opt({ pct_off: null, price: 800, google: g({ price: 366, confirmed: false, pct_below: 44 }) })), null);
+});
+
+test("Google's 0% is not a deal percent", () => {
+  assert.equal(dealPct(opt({ pct_off: null, google: g({ pct_below: 0 }) })), null);
+});
+
+test("googleTrend names the span it really covers and ignores bad dates", () => {
+  assert.equal(googleTrend([["2026-10-01", 500], ["2026-10-08", 400]]), "↓20% in 7 days · lowest in 7 days");
+  assert.equal(googleTrend([["2026-10-08", 500], ["2026-10-08", 400]]), null);
+  assert.equal(googleTrend([["bad", 500], ["worse", 400]]), null);
 });
