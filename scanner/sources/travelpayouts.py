@@ -1,19 +1,14 @@
 """Travelpayouts / Aviasales Data API adapter: cached fares -> Fare records."""
 from __future__ import annotations
 
-import http.client
-import json
 import re
-import time
-import urllib.error
-import urllib.parse
-import urllib.request
 from dataclasses import dataclass, field
 from datetime import date
 from typing import Callable
 from urllib.parse import unquote
 
 from scanner.fare import Fare
+from scanner.net import ApiError, http_get_json  # noqa: F401  (re-exported for callers and tests)
 
 AVIASALES = "https://www.aviasales.com"
 MIN_TRIP_DAYS = 2
@@ -24,8 +19,6 @@ MAX_AGE_DAYS = 7
 API = "https://api.travelpayouts.com"
 PAGE_LIMIT = 1000
 MAX_PAGES = 10
-BACKOFF = (2, 4, 8)
-RETRY_STATUS = {429, 500, 502, 503, 504}
 
 _SEARCH_DATE = re.compile(r"search_date=(\d{2})(\d{2})(\d{4})")
 _FARE_KEY = re.compile(r"static_fare_key=([^&]+)")
@@ -185,31 +178,6 @@ def dedupe(fares: list[Fare]) -> list[Fare]:
             if bagged:
                 kept.append(min(bagged, key=rank))
     return kept
-
-
-class ApiError(Exception):
-    """A request failed for good (after retries, or with a non-retryable status)."""
-
-
-def http_get_json(url: str, params: dict, headers: dict, *, opener=urllib.request.urlopen, sleep=time.sleep) -> dict:
-    """GET url?params as JSON. Retries 429/5xx and network errors with 2s, 4s, 8s waits."""
-    request = urllib.request.Request(url + "?" + urllib.parse.urlencode(params), headers=headers)
-    for attempt in range(len(BACKOFF) + 1):
-        last = attempt == len(BACKOFF)
-        try:
-            with opener(request, timeout=30) as response:
-                return json.loads(response.read().decode("utf-8"))
-        except urllib.error.HTTPError as err:
-            if err.code not in RETRY_STATUS or last:
-                raise ApiError(f"HTTP {err.code} for {url}") from err
-        except (urllib.error.URLError, http.client.HTTPException, OSError) as err:
-            # Timeouts and dropped connections while reading surface as bare OSError/HTTPException.
-            if last:
-                raise ApiError(f"network error for {url}: {getattr(err, 'reason', err)!r}") from err
-        except ValueError as err:
-            raise ApiError(f"invalid JSON from {url}") from err
-        sleep(BACKOFF[attempt])
-    raise AssertionError("unreachable")
 
 
 def months_from(today: date, count: int) -> list[str]:

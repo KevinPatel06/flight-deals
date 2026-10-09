@@ -1,12 +1,10 @@
-import http.client
-import urllib.error
 from datetime import date
 
 import pytest
 
 from factories import TODAY
 from scanner.sources import travelpayouts as tp
-from scanner.sources.travelpayouts import ApiError, TravelpayoutsSource, http_get_json, months_from
+from scanner.sources.travelpayouts import ApiError, TravelpayoutsSource, months_from
 
 
 def dates_row(dest="LIS", depart="2026-12-01", ret="2026-12-10", price=500, search="06102026"):
@@ -127,87 +125,6 @@ def test_seed_reads_previous_and_current_year_as_seed_rows():
     assert [p["beginning_of_period"] for p in api.params_for("get_latest_prices")] == ["2025", "2026"]
     assert len(result.fares) == 2
     assert {f.kind for f in result.fares} == {"seed"}
-
-
-class FakeResponse:
-    def __init__(self, body: bytes):
-        self.body = body
-
-    def read(self):
-        return self.body
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *exc):
-        return False
-
-
-def opener_from(outcomes):
-    calls = []
-
-    def opener(request, timeout):
-        calls.append(request.full_url)
-        outcome = outcomes.pop(0)
-        if isinstance(outcome, Exception):
-            raise outcome
-        return FakeResponse(outcome)
-
-    opener.calls = calls
-    return opener
-
-
-def http_error(code):
-    return urllib.error.HTTPError("https://api.example/x", code, "error", {}, None)
-
-
-def test_http_get_json_retries_then_succeeds():
-    sleeps = []
-    opener = opener_from([http_error(429), http_error(503), b'{"success": true, "data": []}'])
-    body = http_get_json("https://api.example/x", {"a": "1"}, {}, opener=opener, sleep=sleeps.append)
-    assert body == {"success": True, "data": []}
-    assert sleeps == [2, 4]
-    assert opener.calls[0] == "https://api.example/x?a=1"
-
-
-def test_http_get_json_does_not_retry_auth_errors():
-    sleeps = []
-    with pytest.raises(ApiError, match="401"):
-        http_get_json("https://api.example/x", {}, {}, opener=opener_from([http_error(401)]), sleep=sleeps.append)
-    assert sleeps == []
-
-
-def test_http_get_json_gives_up_after_three_retries():
-    sleeps = []
-    with pytest.raises(ApiError, match="429"):
-        http_get_json("https://api.example/x", {}, {}, opener=opener_from([http_error(429)] * 4), sleep=sleeps.append)
-    assert sleeps == [2, 4, 8]
-
-
-def test_http_get_json_rejects_non_json():
-    with pytest.raises(ApiError, match="invalid JSON"):
-        http_get_json("https://api.example/x", {}, {}, opener=opener_from([b"<html>"]), sleep=lambda s: None)
-
-
-@pytest.mark.parametrize(
-    "error",
-    [
-        TimeoutError("timed out"),
-        ConnectionResetError("reset by peer"),
-        http.client.RemoteDisconnected("closed"),
-        http.client.IncompleteRead(b""),
-    ],
-)
-def test_http_get_json_retries_low_level_network_errors(error):
-    sleeps = []
-    opener = opener_from([error, b'{"success": true, "data": []}'])
-    assert http_get_json("https://api.example/x", {}, {}, opener=opener, sleep=sleeps.append) == {"success": True, "data": []}
-    assert sleeps == [2]
-
-
-def test_http_get_json_turns_repeated_timeouts_into_api_error():
-    with pytest.raises(ApiError, match="network error"):
-        http_get_json("https://api.example/x", {}, {}, opener=opener_from([TimeoutError("t")] * 4), sleep=lambda s: None)
 
 
 def test_non_object_rows_are_counted_invalid():
