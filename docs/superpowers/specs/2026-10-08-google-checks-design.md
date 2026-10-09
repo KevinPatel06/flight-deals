@@ -39,7 +39,8 @@ Goals:
 
 Non-goals:
 - Checks for destinations in Canada (all of them, including Vancouver and
-  Calgary; the regular scan covers those).
+  Calgary) or the United States (except Hawaii), and for cities missing from
+  the reference data; the regular scan covers those.
 - Deal-blog feed (next project), region tips (later, from our own history),
   alerts, extra origins.
 - Mixing Google prices into Travelpayouts baselines.
@@ -54,8 +55,10 @@ checked" looks back further than the 7 days shown on the page.
 `pick(scored, places, checks, today, limit=DAILY_LIMIT) -> list[ScoredFare]`
 
 1. `remaining = limit − (checks with checked_on == today)`; if ≤ 0, pick nothing.
-2. Group today's scored fares by `dest_city`; drop cities whose
-   `places.lookup(city).country_code == "CA"`. Each city contributes only its
+2. Group today's scored fares by `dest_city`; drop cities whose country code is
+   `CA`, `US` (except Hawaii: HNL, OGG, KOA, LIH, ITO, MKK, LNY, JHM, MUE) or
+   empty (unknown city). Only checks from the same origin count anywhere below.
+   A city whose newest check was `none` rests `NONE_REST_DAYS = 14`, whatever its dates. Each city contributes only its
    best option (same ranking as `publish.pick_best`).
 3. Skip a city whose best option (same `airport`, `depart`, `return`) has a
    check with `checked_on > today − REPEAT_DAYS`.
@@ -183,3 +186,13 @@ After scoring, before `build_deals`:
 - SerpApi free plan terms or quota may change; quota floor keeps us from
   overrunning, and failures degrade to the current page.
 - `dest_airport` codes Google doesn't know → `none`, not retried for 3 days.
+
+## 13. Follow-up changes (2026-10-09)
+
+- Trip identity includes the origin: `(origin, airport, depart, return)`.
+- Typical ranges with low > high are dropped.
+- The quota floor is never crossed: a run spends at most `searches_left − MIN_LEFT`.
+- The page treats Google's `pct_below` as a deal percent only when the check
+  is `confirmed` and the percent is above 0; the trend names the span it covers.
+- The workflow's bot push retries up to 3 times after `git pull --rebase`, so a
+  push to main during a scan cannot discard the day's checks.
