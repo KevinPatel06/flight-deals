@@ -102,3 +102,14 @@ def test_check_error_message_has_no_key():
         checker.check(CUN, TODAY)
     assert "SECRETKEY" not in str(info.value)
     assert info.value.__cause__ is None and info.value.__suppress_context__
+
+
+def test_parse_check_survives_wrong_container_types():
+    body = {
+        "best_flights": 5,
+        "other_flights": [{"price": 400}],
+        "price_insights": {"price_level": [], "price_history": [[1.7e15, 300], [float("nan"), 200], [1786579200, 250]]},
+    }
+    check = parse_check(body, CUN, TODAY)
+    assert (check.status, check.price, check.level) == ("ok", 400, None)
+    assert check.history == ((date(2026, 8, 13), 250),)

@@ -159,3 +159,7 @@ test("googleTrend describes the last three weeks", () => {
 test("includeNew still shows every new route, Google-checked or not", () => {
   assert.equal(optionMatches(opt({ pct_off: null, google: g({ pct_below: 10 }) }), f({ includeNew: true }), TODAY), true);
 });
+
+test("Google's percent counts only when Google confirms our price", () => {
+  assert.equal(dealPct(opt({ pct_off: null, price: 800, google: g({ price: 366, confirmed: false, pct_below: 44 }) })), null);
+});

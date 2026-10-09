@@ -14,9 +14,10 @@ export function ageDays(option, today) {
   return Math.floor((Date.parse(today) - Date.parse(option.searched_on)) / DAY_MS);
 }
 
-// Our own percent off when history exists; otherwise Google's percent below its typical price.
+// Our own percent off when history exists; otherwise Google's percent below its typical price,
+// but only when Google confirmed our fare (otherwise that percent describes Google's fare, not ours).
 export function dealPct(o) {
-  return o.pct_off ?? o.google?.pct_below ?? null;
+  return o.pct_off ?? (o.google?.confirmed ? o.google.pct_below : null) ?? null;
 }
 
 export function googleTrend(history) {

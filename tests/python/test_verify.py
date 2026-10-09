@@ -118,3 +118,25 @@ def test_run_checks_skips_a_failed_pick_and_stops_after_two_errors_in_a_row():
 def test_run_checks_quota_error_is_a_note_not_a_crash():
     run = run_checks(FakeChecker(left="error"), [scored("LIS", 50)], TODAY)
     assert run.checks == [] and "HTTP 401" in run.note
+
+
+class BrokenChecker(FakeChecker):
+    def __init__(self, quota_error=False):
+        super().__init__()
+        self.quota_error = quota_error
+
+    def searches_left(self):
+        if self.quota_error:
+            raise KeyError("plan_searches_left")
+        return 100
+
+    def check(self, fare, today):
+        self.checked.append(fare.dest_city)
+        raise TypeError("'int' object is not iterable")
+
+
+def test_unexpected_errors_become_a_note_and_never_raise():
+    run = run_checks(BrokenChecker(), [scored("LIS", 50), scored("PAR", 45), scored("CUN", 40)], TODAY)
+    assert run.checks == [] and run.note == "check failed: TypeError"
+    run = run_checks(BrokenChecker(quota_error=True), [scored("LIS", 50)], TODAY)
+    assert run.checks == [] and run.note == "quota check failed: KeyError"

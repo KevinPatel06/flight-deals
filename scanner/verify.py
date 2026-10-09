@@ -60,14 +60,19 @@ class CheckRun:
     note: str | None = None
 
 
+def _describe(err: Exception) -> str:
+    """ApiError text is key-free by construction; anything else is named by type only, in case it carries a URL."""
+    return str(err) if isinstance(err, ApiError) else type(err).__name__
+
+
 def run_checks(checker, picks: list[ScoredFare], today: date) -> CheckRun:
     """Check each pick on Google. Errors become a note; they never raise."""
     if not picks:
         return CheckRun()
     try:
         left = checker.searches_left()
-    except ApiError as err:
-        return CheckRun(note=f"quota check failed: {err}")
+    except Exception as err:  # noqa: BLE001  a check must never stop the publish
+        return CheckRun(note=f"quota check failed: {_describe(err)}")
     if left is not None and left < MIN_LEFT:
         return CheckRun([], left, f"only {left} Google searches left this month")
     done: list[GoogleCheck] = []
@@ -76,8 +81,8 @@ def run_checks(checker, picks: list[ScoredFare], today: date) -> CheckRun:
         try:
             done.append(checker.check(item.fare, today))
             errors = 0
-        except ApiError as err:
-            errors, note = errors + 1, f"check failed: {err}"
+        except Exception as err:  # noqa: BLE001  a check must never stop the publish
+            errors, note = errors + 1, f"check failed: {_describe(err)}"
             if errors >= MAX_ERRORS:
                 break
     return CheckRun(done, None if left is None else left - len(done), note)

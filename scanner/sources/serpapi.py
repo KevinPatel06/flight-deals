@@ -23,8 +23,12 @@ def _history(points) -> tuple[tuple[date, int], ...]:
         if not (isinstance(point, list) and len(point) == 2 and isinstance(point[0], (int, float))):
             continue
         price = _price(point[1])
-        if price:
+        if not price:
+            continue
+        try:
             out.append((datetime.fromtimestamp(point[0], timezone.utc).date(), price))
+        except (ValueError, OSError, OverflowError):  # NaN or out-of-range timestamps
+            continue
     return tuple(out)
 
 
@@ -41,7 +45,7 @@ def parse_check(data, fare: Fare, checked_on: date) -> GoogleCheck:
             return GoogleCheck(status="none", **trip)
         raise ApiError(f"SerpApi: {error[:120]}")
     insights = data.get("price_insights") if isinstance(data.get("price_insights"), dict) else {}
-    flights = [f for key in ("best_flights", "other_flights") for f in (data.get(key) or []) if isinstance(f, dict)]
+    flights = [f for key in ("best_flights", "other_flights") if isinstance(data.get(key), list) for f in data[key] if isinstance(f, dict)]
     price = _price(insights.get("lowest_price")) or min(filter(None, (_price(f.get("price")) for f in flights)), default=None)
     if price is None:
         return GoogleCheck(status="none", **trip)
@@ -53,7 +57,7 @@ def parse_check(data, fare: Fare, checked_on: date) -> GoogleCheck:
     meta = data.get("search_metadata") if isinstance(data.get("search_metadata"), dict) else {}
     url = meta.get("google_flights_url")
     return GoogleCheck(
-        status="ok", price=price, level=level if level in LEVELS else None, typical_low=low, typical_high=high,
+        status="ok", price=price, level=level if isinstance(level, str) and level in LEVELS else None, typical_low=low, typical_high=high,
         history=_history(insights.get("price_history")),
         url=url if isinstance(url, str) and url.startswith("https://") else None,
         **trip,
