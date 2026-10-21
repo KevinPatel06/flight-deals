@@ -13,6 +13,7 @@ from scanner.publish import CONFIRM_TOLERANCE, build_deals, write_deals
 from scanner.scoring import WINDOW_DAYS, build_baselines, scan_sizes, scan_too_small, score
 from scanner.sources.serpapi import SerpApiChecker
 from scanner.sources.travelpayouts import TravelpayoutsSource
+from scanner.targets import FOCUS_CITIES
 from scanner.verify import CheckRun, pick, run_checks
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -57,7 +58,7 @@ def main(argv=None, *, source=None, checker=None, now=None, env_file=None) -> in
         if not token:
             print(f"error: {TOKEN_VAR} is not set (environment variable or .env file)", file=sys.stderr)
             return 2
-        source = TravelpayoutsSource(token)
+        source = TravelpayoutsSource(token, focus=FOCUS_CITIES)
         key = os.environ.get(KEY_VAR) or env.get(KEY_VAR)
         if checker is None and key:
             checker = SerpApiChecker(key)
@@ -107,9 +108,10 @@ def main(argv=None, *, source=None, checker=None, now=None, env_file=None) -> in
         f"scan {today}: {len(result.fares)} fares, {deals['scan']['destinations']} destinations, "
         f"{big} fares >= 30% off; rejected {result.rejected}; failed {result.failed}"
     )
-    confirmed = sum(1 for c in run.checks if c.status == "ok" and c.price <= c.tp_price * (1 + CONFIRM_TOLERANCE))
+    confirmed = sum(1 for c in run.checks if c.status == "ok" and not c.direct and c.price <= c.tp_price * (1 + CONFIRM_TOLERANCE))
     left = "unknown" if run.searches_left is None else run.searches_left
-    print(f"google: {len(run.checks)} checked, {confirmed} confirmed, searches left {left}" + (f"; {run.note}" if run.note else ""))
+    direct = sum(1 for c in run.checks if c.direct)
+    print(f"google: {len(run.checks)} checked ({direct} direct), {confirmed} confirmed, searches left {left}" + (f"; {run.note}" if run.note else ""))
     return 0
 
 if __name__ == "__main__":

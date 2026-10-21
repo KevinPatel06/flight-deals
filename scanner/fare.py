@@ -17,7 +17,7 @@ class Fare:
     stops: int
     searched_on: date
     link: str
-    kind: str  # "dates" | "latest" | "seed"
+    kind: str  # "dates" | "latest" | "seed", or "direct" for a Google search of dates we picked (never stored)
     scan_date: date
     carry_on: bool | None = None
     checked_bag: bool | None = None

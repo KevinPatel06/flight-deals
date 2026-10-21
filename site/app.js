@@ -29,7 +29,10 @@ const fmtMonth = (ym) => new Date(`${ym}-15T12:00:00`).toLocaleDateString("en-CA
 const flag = (cc) =>
   /^[A-Z]{2}$/.test(cc || "") ? String.fromCodePoint(...[...cc].map((c) => 0x1f1e6 + c.charCodeAt(0) - 65)) : "✈️";
 const airline = (code) => (code ? AIRLINES[code] ?? code : "Airline n/a");
-const stopsText = (o) => (o.stops === 0 ? "Nonstop" : `${o.stops} stop${o.stops > 1 ? "s" : ""}`);
+const stopsText = (o) =>
+  o.stops === null ? "1 stop or fewer" : o.stops === 0 ? "Nonstop" : `${o.stops} stop${o.stops > 1 ? "s" : ""}`;
+// A direct Google search (dates the scanner picked, no cached fare) knows no airline.
+const carrier = (o) => (o.direct ? "Google search, dates picked by the scanner" : airline(o.airline));
 
 function ageText(o) {
   const n = ageDays(o, today);
@@ -98,7 +101,7 @@ function optionRow(o) {
   const checked = o.google?.status === "ok" ? ` · ${o.google.confirmed ? "✓" : "⚠"} Google ${money(o.google.price)}` : "";
   return `<li>
     <span><strong>${money(o.price)}</strong>${pct} · ${fmtDate(o.depart)} – ${fmtDate(o.return)} (${o.days} days)</span>
-    <span class="age">${esc(stopsText(o))} · ${esc(airline(o.airline))} · searched ${ageText(o)}${bag}${checked}</span>
+    <span class="age">${esc(stopsText(o))} · ${esc(carrier(o))} · searched ${ageText(o)}${bag}${checked}</span>
     ${links(o)}
   </li>`;
 }
@@ -116,7 +119,7 @@ function card(d) {
       ${pctBadge(b)}
     </header>
     <p class="price"><strong>${money(b.price)}</strong>${normal}</p>
-    <p class="meta">${esc(stopsText(b))} · ${esc(airline(b.airline))}</p>
+    <p class="meta">${esc(stopsText(b))} · ${esc(carrier(b))}</p>
     <p class="dates">${fmtDate(b.depart)} – ${fmtDate(b.return)} (${b.days} days)</p>
     ${googleLine(b)}
     ${badges(b)}

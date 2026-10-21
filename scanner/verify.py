@@ -5,18 +5,20 @@ from dataclasses import dataclass, field
 from datetime import date, timedelta
 
 from scanner.check import GoogleCheck
+from scanner.fare import Fare
 from scanner.net import ApiError
 from scanner.places import Places
 from scanner.scoring import ScoredFare
+from scanner.targets import TARGETS, Target, excluded, strong_dollar, target_of
 
 DAILY_LIMIT = 7  # 7 x 31 = 217 of the free plan's 250 searches a month
+PRIORITY_SLOTS = 6  # of the daily limit, for the must-check targets: 12 of them come round every other day
 REPEAT_DAYS = 3
 MIN_LEFT = 10
 PICK_PCT = 30
 MAX_ERRORS = 2
 NONE_REST_DAYS = 14  # a city Google could not price waits this long, whatever its dates
-SKIP_COUNTRIES = {"CA", "US", ""}  # "" = city missing from the reference data
-HAWAII = {"HNL", "OGG", "KOA", "LIH", "ITO", "MKK", "LNY", "JHM", "MUE"}
+DIRECT_LEAD_DAYS = 56  # a direct search leaves on the first Tuesday at least this far out
 
 
 def _trip(item: ScoredFare) -> tuple[str, str, date, date]:
@@ -25,7 +27,7 @@ def _trip(item: ScoredFare) -> tuple[str, str, date, date]:
 
 def _checkable(city: str, places: Places) -> bool:
     """International only: no Canada, no United States except Hawaii, no unknown cities."""
-    return city in HAWAII or places.lookup(city).country_code not in SKIP_COUNTRIES
+    return not excluded(city, places) and places.lookup(city).country_code != ""
 
 
 def _rank(item: ScoredFare) -> tuple:
@@ -33,8 +35,29 @@ def _rank(item: ScoredFare) -> tuple:
     return -pct, item.fare.price
 
 
-def pick(scored: list[ScoredFare], places: Places, checks: list[GoogleCheck], today: date, limit: int = DAILY_LIMIT) -> list[ScoredFare]:
-    """Today's international fares worth a Google check, best first, within what is left of today's limit."""
+def direct_search(target: Target, origin: str, today: date) -> ScoredFare:
+    """A trip of our own choosing, for a target with no cached fare. Price 0 marks it as direct."""
+    depart = today + timedelta(days=DIRECT_LEAD_DAYS)
+    depart += timedelta(days=(1 - depart.weekday()) % 7)
+    fare = Fare(
+        origin=origin, dest_airport=target.airport, dest_city=target.cities[0], depart_date=depart,
+        return_date=depart + timedelta(days=target.nights), price=0, airline="", stops=0,
+        searched_on=today, link="", kind="direct", scan_date=today,
+    )
+    return ScoredFare(fare=fare, normal=None, pct_off=None, baseline=None, age_days=0, badges=())
+
+
+def pick(
+    scored: list[ScoredFare], places: Places, checks: list[GoogleCheck], today: date,
+    limit: int = DAILY_LIMIT, targets: tuple[Target, ...] = TARGETS,
+) -> list[ScoredFare]:
+    """Today's Google searches, within what is left of today's limit.
+
+    First up to PRIORITY_SLOTS must-check targets: big discounts, then the least recently searched.
+    Each sends its best fare not searched in the last REPEAT_DAYS, or a direct search when it has
+    no cached fare at all. Then other international cities, strong-dollar countries first, then any
+    targets that did not fit.
+    """
     origins = {item.fare.origin for item in scored}
     checks = [c for c in checks if c.origin in origins]
     remaining = limit - sum(1 for c in checks if c.checked_on == today)
@@ -51,14 +74,40 @@ def pick(scored: list[ScoredFare], places: Places, checks: list[GoogleCheck], to
         city for city, c in newest.items()
         if c.status == "none" and c.checked_on > today - timedelta(days=NONE_REST_DAYS)
     }
+    target_fares: dict[Target, list[ScoredFare]] = {target: [] for target in targets}
+    target_last: dict[Target, date] = {target: date.min for target in targets}
+    for city, day in last_checked.items():
+        if (target := target_of(city, places, targets)) is not None:
+            target_last[target] = max(target_last[target], day)
     best: dict[str, ScoredFare] = {}
     for item in scored:
         city = item.fare.dest_city
-        if city not in best or _rank(item) < _rank(best[city]):
+        if not _checkable(city, places) or city in resting:
+            continue
+        if (target := target_of(city, places, targets)) is not None:
+            target_fares[target].append(item)
+        elif city not in best or _rank(item) < _rank(best[city]):
             best[city] = item
+
+    priority = []
+    for target, items in target_fares.items():
+        fresh = [item for item in items if _trip(item) not in recent]
+        if fresh:
+            priority.append(min(fresh, key=_rank))
+        elif not items and len(origins) == 1 and _checkable(target.cities[0], places) and target.cities[0] not in resting:
+            priority.append(direct_search(target, next(iter(origins)), today))
+    order = {target: index for index, target in enumerate(targets)}
+
+    def due(item: ScoredFare) -> tuple:
+        target = target_of(item.fare.dest_city, places, targets)
+        big = item.pct_off is not None and item.pct_off >= PICK_PCT
+        return (0, *_rank(item)) if big else (1, target_last[target], order[target])
+
+    priority.sort(key=due)
+
     big, new = [], []
     for city, item in best.items():
-        if not _checkable(city, places) or city in resting or _trip(item) in recent:
+        if _trip(item) in recent:
             continue
         if item.pct_off is None:
             new.append(item)
@@ -66,7 +115,8 @@ def pick(scored: list[ScoredFare], places: Places, checks: list[GoogleCheck], to
             big.append(item)
     big.sort(key=_rank)
     new.sort(key=lambda item: (last_checked.get(item.fare.dest_city, date.min), item.fare.price))
-    return (big + new)[:remaining]
+    others = sorted(big + new, key=lambda item: not strong_dollar(item.fare.dest_city, places))
+    return (priority[:PRIORITY_SLOTS] + others + priority[PRIORITY_SLOTS:])[:remaining]
 
 
 @dataclass

@@ -103,7 +103,7 @@ class FakeChecker:
             raise ApiError("HTTP 500 for https://serpapi.com/search.json")
         return GoogleCheck(checked_on=today, origin=fare.origin, dest_city=fare.dest_city, airport=fare.dest_airport,
                            depart=fare.depart_date, return_date=fare.return_date, tp_price=fare.price, status="ok",
-                           price=fare.price - 10, level="low", typical_low=500, typical_high=700)
+                           price=(fare.price or 1000) - 10, level="low", typical_low=500, typical_high=700)
 
 
 def read_deals(tmp_path):
@@ -159,3 +159,18 @@ def test_seed_runs_no_checks(tmp_path):
     seed = make_fare(kind="seed", searched_on=date(2026, 9, 1))
     main(cli_args(tmp_path) + ["--seed"], source=FakeSource([], [seed]), checker=checker, now=NOW)
     assert checker.calls == []
+
+
+def test_must_check_place_without_cached_fare_gets_a_direct_search_and_a_card(tmp_path, capsys):
+    ref = tmp_path / "ref"
+    write_reference(ref)
+    (ref / "cities.json").write_text(json.dumps({"LIS": {"name": "Lisbon", "country": "PT"},
+                                                 "HNL": {"name": "Honolulu", "country": "US"}}), encoding="utf-8")
+    checker = FakeChecker()
+    assert main(cli_args(tmp_path), source=FakeSource([make_fare(price=450)]), checker=checker, now=NOW) == 0
+    assert checker.calls == ["HNL", "LIS"]
+    hnl = next(d for d in read_deals(tmp_path)["destinations"] if d["city"] == "HNL")
+    assert (hnl["best"]["direct"], hnl["best"]["google"]["status"]) == (True, "ok")
+    assert [c.tp_price for c in store.load_checks(tmp_path / "data", since=date(2026, 10, 1))] == [0, 450]
+    assert store.load(tmp_path / "data", since=date(2026, 10, 1)) == [make_fare(price=450)]  # never stored as a fare
+    assert "google: 2 checked (1 direct)" in capsys.readouterr().out

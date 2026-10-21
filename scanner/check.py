@@ -13,7 +13,7 @@ class GoogleCheck:
     airport: str
     depart: date
     return_date: date
-    tp_price: int  # the Travelpayouts price when the check ran
+    tp_price: int  # the Travelpayouts price when the check ran; 0 for a direct search of dates we picked
     status: str  # "ok" or "none" (Google found no matching flights)
     price: int | None = None
     level: str | None = None  # Google's verdict: "low", "typical" or "high"
@@ -25,6 +25,10 @@ class GoogleCheck:
     @property
     def trip(self) -> tuple[str, str, date, date]:
         return self.origin, self.airport, self.depart, self.return_date
+
+    @property
+    def direct(self) -> bool:
+        return self.tp_price == 0
 
     @property
     def pct_below(self) -> int | None:

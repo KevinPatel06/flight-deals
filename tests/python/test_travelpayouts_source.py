@@ -47,7 +47,7 @@ class FakeApi:
     def __call__(self, url, params, headers):
         endpoint = url.rsplit("/", 1)[-1]
         self.calls.append((endpoint, dict(params), dict(headers)))
-        key = (endpoint, params.get("departure_at") or params.get("beginning_of_period"), params["page"])
+        key = (endpoint, params.get("departure_at") or params.get("beginning_of_period") or params.get("destination"), params["page"])
         value = self.responses.get(key, ok([]))
         if isinstance(value, Exception):
             raise value
@@ -132,3 +132,12 @@ def test_non_object_rows_are_counted_invalid():
     result = TravelpayoutsSource("tok", get_json=api).fetch("YUL", TODAY)
     assert result.rejected == {"invalid": 2}
     assert len(result.fares) == 1
+
+
+def test_focus_cities_are_also_asked_for_one_by_one():
+    api = FakeApi({("prices_for_dates", "REK", "1"): ok([dates_row(dest="REK")])})
+    result = TravelpayoutsSource("tok", get_json=api, months_ahead=1, focus=("REK", "HNL")).fetch("YUL", TODAY)
+
+    focus = [p for p in api.params_for("prices_for_dates") if "destination" in p]
+    assert [(p["destination"], p["origin"], "departure_at" in p) for p in focus] == [("REK", "YUL", False), ("HNL", "YUL", False)]
+    assert [f.dest_city for f in result.fares] == ["REK"]

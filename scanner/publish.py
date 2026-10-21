@@ -8,8 +8,10 @@ from pathlib import Path
 from urllib.parse import quote
 
 from scanner.check import GoogleCheck
+from scanner.fare import Fare
 from scanner.places import Places
 from scanner.scoring import ScoredFare
+from scanner.targets import excluded
 
 SHOW_DAYS = 7
 CONFIRM_TOLERANCE = 0.10
@@ -58,6 +60,22 @@ def latest_checks(checks, today: date) -> dict[tuple, GoogleCheck]:
     return latest
 
 
+def direct_fares(latest: dict[tuple, GoogleCheck], have: set[str], today: date) -> list[ScoredFare]:
+    """Priced direct Google searches for cities with no cached fare today, as fares for the page."""
+    return [
+        ScoredFare(
+            fare=Fare(
+                origin=c.origin, dest_airport=c.airport, dest_city=c.dest_city, depart_date=c.depart,
+                return_date=c.return_date, price=c.price, airline="", stops=0, searched_on=c.checked_on,
+                link="", kind="direct", scan_date=today,
+            ),
+            normal=None, pct_off=None, baseline=None, age_days=(today - c.checked_on).days, badges=(),
+        )
+        for c in latest.values()
+        if c.direct and c.status == "ok" and c.dest_city not in have and c.depart > today
+    ]
+
+
 def fare_json(scored: ScoredFare, check: GoogleCheck | None = None) -> dict:
     fare = scored.fare
     links = {"google": google_link(fare.origin, fare.dest_airport, fare.depart_date, fare.return_date)}
@@ -73,7 +91,7 @@ def fare_json(scored: ScoredFare, check: GoogleCheck | None = None) -> dict:
         "pct_off": scored.pct_off,
         "baseline": scored.baseline,
         "airline": fare.airline,
-        "stops": fare.stops,
+        "stops": None if fare.kind == "direct" else fare.stops,  # a direct search only knows "one stop or fewer"
         "carry_on": fare.carry_on,
         "checked_bag": fare.checked_bag,
         "bag_pieces": fare.bag_pieces,
@@ -83,6 +101,8 @@ def fare_json(scored: ScoredFare, check: GoogleCheck | None = None) -> dict:
         "badges": list(scored.badges),
         "links": links,
     }
+    if fare.kind == "direct":
+        option["direct"] = True
     if check is not None:
         option["google"] = google_json(check, fare.price)
         if check.status == "ok" and check.url:
@@ -106,6 +126,9 @@ def build_deals(
     by_city: dict[str, list[ScoredFare]] = {}
     for item in scored:
         by_city.setdefault(item.fare.dest_city, []).append(item)
+    for item in direct_fares(latest, set(by_city), scan_date):
+        by_city.setdefault(item.fare.dest_city, []).append(item)
+    by_city = {city: items for city, items in by_city.items() if not excluded(city, places)}
     destinations = []
     for city, items in sorted(by_city.items()):
         place = places.lookup(city)
@@ -127,7 +150,7 @@ def build_deals(
         "origin": origin,
         "scan": {
             "date": scan_date.isoformat(),
-            "fares": len(scored),
+            "fares": sum(len(items) for items in by_city.values()),
             "destinations": len(destinations),
             "rejected": dict(sorted(rejected.items())),
             "google": {

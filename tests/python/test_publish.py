@@ -195,3 +195,41 @@ def test_validate_rejects_bad_google_objects():
 
 def test_checks_from_another_origin_are_not_attached():
     assert "google" not in lis_best(deals_with([gcheck(origin="YYZ")]))
+
+
+def test_canada_and_the_us_outside_hawaii_are_left_off_the_page():
+    places = Places(
+        {"LIS": {"name": "Lisbon", "country": "PT"}, "NYC": {"name": "New York", "country": "US"},
+         "YVR": {"name": "Vancouver", "country": "CA"}, "HNL": {"name": "Honolulu", "country": "US"}},
+        {}, {},
+    )
+    deals = build_deals([scored(dest=c) for c in ("LIS", "NYC", "YVR", "HNL")], places, origin="YUL",
+                        scan_date=TODAY, rejected={}, generated_at=NOW)
+    assert [d["city"] for d in deals["destinations"]] == ["HNL", "LIS"]
+    assert (deals["scan"]["fares"], deals["scan"]["destinations"]) == (2, 2)
+
+
+def direct_check(**overrides):
+    values = dict(dest_city="HNL", airport="HNL", tp_price=0, price=1100, typical_low=1200, typical_high=1600,
+                  depart=date(2026, 12, 8), ret=date(2026, 12, 15))
+    return gcheck(**{**values, **overrides})
+
+
+def test_direct_google_search_becomes_a_card_when_there_is_no_cached_fare():
+    deals = deals_with([direct_check(checked_on=TODAY - timedelta(days=1))])
+    card = next(d for d in deals["destinations"] if d["city"] == "HNL")
+    best = card["best"]
+    assert (best["price"], best["stops"], best["airline"], best["direct"], best["pct_off"]) == (1100, None, "", True, None)
+    assert (best["depart"], best["return"], best["searched_on"], best["age_days"]) == ("2026-12-08", "2026-12-15", "2026-10-07", 1)
+    assert best["google"]["confirmed"] is True and best["google"]["pct_below"] == 21
+    assert best["links"] == {"google": "https://www.google.com/travel/flights?tfs=abc"}
+    assert "aviasales" not in best["links"]
+    assert validate(deals) == []
+
+
+def test_direct_search_is_dropped_when_a_cached_fare_exists_unpriced_or_older_than_a_week():
+    with_fare = build_deals([scored(dest="HNL")], PLACES, origin="YUL", scan_date=TODAY, rejected={}, generated_at=NOW,
+                            checks=[direct_check()])
+    assert [o["price"] for o in with_fare["destinations"][0]["options"]] == [500]
+    for check in (direct_check(status="none", price=None), direct_check(checked_on=TODAY - timedelta(days=7))):
+        assert "HNL" not in [d["city"] for d in deals_with([check])["destinations"]]

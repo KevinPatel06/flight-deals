@@ -196,3 +196,28 @@ After scoring, before `build_deals`:
   is `confirmed` and the percent is above 0; the trend names the span it covers.
 - The workflow's bot push retries up to 3 times after `git pull --rebase`, so a
   push to main during a scan cannot discard the day's checks.
+
+## Revision 2026-10-21 — must-check destinations
+
+Destinations live in `scanner/targets.py`.
+
+- **Must-check targets** (in the user's order): Hawaii, Mumbai, Tokyo, Costa Rica,
+  Reykjavik, Cancun, Punta Cana, South Africa, Vietnam, Thailand, Bali, Mexico
+  (rest of the country). Country targets claim every city in the country, and
+  Cancun is matched before Mexico.
+- **Selection:** up to `PRIORITY_SLOTS = 6` of the 7 daily searches go to targets.
+  Targets at ≥ `PICK_PCT` off come first. The rest follow, least recently searched
+  first, with list order breaking ties, so 12 targets each come up about every
+  other day. A target sends its best fare that has not been searched in the last
+  `REPEAT_DAYS`. If it has no cached fare at all, it gets a **direct search**:
+  `cities[0]` → `airport`, leaving on the first Tuesday at least 56 days out, for
+  `nights` nights. The next slots go to other international cities: big discounts
+  and new routes as before, with `STRONG_DOLLAR` countries ahead of all others.
+  Targets that did not fit fill any leftover slots.
+- **Direct searches** are stored as checks with `tp_price = 0` (`GoogleCheck.direct`)
+  and never as fares, so Google prices stay out of baselines. For 7 days, a priced
+  direct search shows on the page as its own card (`"direct": true`,
+  `"stops": null`), but only while the city has no cached fare.
+- **Scan:** Travelpayouts is also asked once per target city (`FOCUS_CITIES`, with
+  no month), which finds a few fares the all-destinations query misses.
+- **Page:** Canada and the US outside Hawaii are left off the page entirely.

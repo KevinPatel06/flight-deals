@@ -205,24 +205,22 @@ GetJson = Callable[[str, dict, dict], dict]
 class TravelpayoutsSource:
     """Fetches cached round-trip fares from one origin."""
 
-    def __init__(self, token: str, get_json: GetJson | None = None, months_ahead: int = 12):
+    def __init__(self, token: str, get_json: GetJson | None = None, months_ahead: int = 12, focus: tuple[str, ...] = ()):
+        """focus: city codes also asked for one by one, which finds a few fares the all-destinations query misses."""
         self._headers = {"X-Access-Token": token, "Accept": "application/json"}
         self._get_json = get_json or http_get_json
         self._months_ahead = months_ahead
+        self._focus = focus
 
     def fetch(self, origin: str, today: date) -> FetchResult:
         result = FetchResult()
         candidates: list[Fare | None] = []
+        dates = {"origin": origin, "one_way": "false", "currency": "cad", "market": "ca", "sorting": "price", "unique": "false"}
         for month in months_from(today, self._months_ahead):
-            rows = self._pages(result, f"dates {month}", "/aviasales/v3/prices_for_dates", {
-                "origin": origin,
-                "departure_at": month,
-                "one_way": "false",
-                "currency": "cad",
-                "market": "ca",
-                "sorting": "price",
-                "unique": "false",
-            })
+            rows = self._pages(result, f"dates {month}", "/aviasales/v3/prices_for_dates", {**dates, "departure_at": month})
+            candidates += [normalize_dates_row(row, origin, today) for row in rows]
+        for city in self._focus:
+            rows = self._pages(result, f"dates {city}", "/aviasales/v3/prices_for_dates", {**dates, "destination": city})
             candidates += [normalize_dates_row(row, origin, today) for row in rows]
         rows = self._latest(result, "latest", origin, today.year)
         candidates += [normalize_latest_row(row, origin, today, "latest") for row in rows]
